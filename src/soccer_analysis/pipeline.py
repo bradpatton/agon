@@ -19,8 +19,9 @@ from soccer_analysis.camera.camera_movement_estimator import CameraMovementEstim
 from soccer_analysis.config import CalibrationConfig, PipelineConfig, resolve_device
 from soccer_analysis.detection.base import Tracks, add_position_to_tracks, interpolate_ball_positions
 from soccer_analysis.geometry.bbox import Point
-from soccer_analysis.geometry.view_transformer import ViewTransformer
-from soccer_analysis.interfaces import Detector
+from soccer_analysis.geometry.pitch_keypoint_calibrator import PitchKeypointCalibrator
+from soccer_analysis.geometry.view_transformer import ViewTransformer, add_transformed_position_to_tracks
+from soccer_analysis.interfaces import Detector, PitchCalibrator
 from soccer_analysis.io.video import read_video, save_video
 from soccer_analysis.team.team_assigner import TeamAssigner
 from soccer_analysis.viz.annotate import draw_annotations
@@ -48,6 +49,26 @@ def _build_detector(model_path: Path, preferred_device: str | None, confidence: 
     device = resolve_device(preferred_device)
     logger.info("Using UltralyticsDetector backend (device=%s)", device)
     return UltralyticsDetector(str(model_path), device=device, confidence=confidence)
+
+
+def _build_pitch_calibrator(
+    calibration: CalibrationConfig, mode: str, video_frames: list
+) -> PitchCalibrator:
+    """Picks a PitchCalibrator per ``PipelineConfig.calibration_mode``.
+
+    'dynamic' is a classical-CV first cut (center-circle detection), not a
+    trained keypoint model -- see PitchKeypointCalibrator's docstring for
+    what it actually solves and its real limitations before trusting its
+    output over the static calibration.
+    """
+    if mode == "dynamic":
+        calibrator = PitchKeypointCalibrator(court_width_m=calibration.court_width_m)
+        calibrator.calibrate(video_frames)
+        return calibrator
+
+    calibrator = ViewTransformer(calibration)
+    calibrator.calibrate(video_frames)
+    return calibrator
 
 
 @dataclass
@@ -105,8 +126,8 @@ def run_pipeline(
     )
     camera_movement_estimator.add_adjust_positions_to_tracks(tracks, camera_movement_per_frame)
 
-    view_transformer = ViewTransformer(calibration)
-    view_transformer.add_transformed_position_to_tracks(tracks)
+    pitch_calibrator = _build_pitch_calibrator(calibration, config.calibration_mode, video_frames)
+    add_transformed_position_to_tracks(tracks, pitch_calibrator)
 
     tracks["ball"] = interpolate_ball_positions(tracks["ball"])
 

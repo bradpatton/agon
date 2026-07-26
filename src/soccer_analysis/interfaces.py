@@ -19,11 +19,12 @@ from soccer_analysis.io.video import Frame
 class Detector(Protocol):
     """Detects and tracks players/referees/ball across a clip.
 
-    Current implementation: ``soccer_analysis.detection.tracker.Tracker``
-    (Ultralytics YOLO + ``supervision.ByteTrack``). Alternatives worth
-    benchmarking: a newer Ultralytics YOLO checkpoint or RT-DETR for
-    detection, and BoT-SORT in place of ByteTrack for more robust tracking
-    through occlusion (players clustering during set pieces).
+    Two implementations: ``soccer_analysis.detection.onnx_tracker.OnnxDetector``
+    (onnxruntime-backed, the default -- no torch needed) and
+    ``soccer_analysis.detection.tracker.UltralyticsDetector`` (torch-backed,
+    needs the ``[train]`` extra). Both use ``supervision.ByteTrack`` for
+    tracking; BoT-SORT is a further alternative worth benchmarking for more
+    robust tracking through occlusion (players clustering during set pieces).
     """
 
     def get_object_tracks(
@@ -51,13 +52,21 @@ class TeamClassifier(Protocol):
 
 @runtime_checkable
 class PitchCalibrator(Protocol):
-    """Maps pixel-space positions to pitch-space meters.
+    """Maps pixel-space positions to pitch-space meters, per frame.
 
-    Current implementation: ``soccer_analysis.geometry.view_transformer.ViewTransformer``
-    (one static per-video homography from four calibrated corner points). A
-    more robust alternative is per-frame pitch-keypoint detection feeding a
-    per-frame homography, which handles camera pan/zoom that a static
-    transform gets wrong.
+    ``calibrate()`` does any one-time, whole-clip work up front (a no-op for
+    a static calibrator); ``transform_point()`` is then called per point per
+    frame. ``frame_idx`` exists specifically so a *dynamic* calibrator can
+    use a different transform per frame.
+
+    Two implementations: ``soccer_analysis.geometry.view_transformer.ViewTransformer``
+    (one static per-video homography from four calibrated corner points --
+    ignores ``frame_idx``) and
+    ``soccer_analysis.geometry.pitch_keypoint_calibrator.PitchKeypointCalibrator``
+    (classical-CV per-frame center-circle detection -- see that class's
+    docstring for what it actually solves and its real limitations).
     """
 
-    def transform_point(self, point: Point) -> Point | None: ...
+    def calibrate(self, frames: list[Frame]) -> None: ...
+
+    def transform_point(self, point: Point, frame_idx: int = 0) -> Point | None: ...

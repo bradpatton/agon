@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -46,6 +47,10 @@ class PipelineConfig(BaseModel):
     team_kmeans_random_state: int = 0
     device: str | None = None
     """Inference device: 'cuda', 'mps', 'cpu', or None to auto-detect."""
+    calibration_mode: Literal["static", "dynamic"] = "static"
+    """'static' = ViewTransformer (one homography from CalibrationConfig).
+    'dynamic' = PitchKeypointCalibrator (per-frame center-circle detection,
+    experimental classical-CV first cut -- see that class's docstring)."""
 
 
 class Settings(BaseSettings):

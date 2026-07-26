@@ -7,7 +7,8 @@ from soccer_analysis.geometry.bbox import (
     measure_distance,
     measure_xy_distance,
 )
-from soccer_analysis.geometry.view_transformer import ViewTransformer
+from soccer_analysis.geometry.pitch_keypoint_calibrator import PitchKeypointCalibrator
+from soccer_analysis.geometry.view_transformer import ViewTransformer, add_transformed_position_to_tracks
 
 __all__ = [
     "BBox",
@@ -17,5 +18,7 @@ __all__ = [
     "get_foot_position",
     "measure_distance",
     "measure_xy_distance",
+    "PitchKeypointCalibrator",
     "ViewTransformer",
+    "add_transformed_position_to_tracks",
 ]
