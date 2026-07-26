@@ -22,9 +22,14 @@ class Detector(Protocol):
     Two implementations: ``soccer_analysis.detection.onnx_tracker.OnnxDetector``
     (onnxruntime-backed, the default -- no torch needed) and
     ``soccer_analysis.detection.tracker.UltralyticsDetector`` (torch-backed,
-    needs the ``[train]`` extra). Both use ``supervision.ByteTrack`` for
-    tracking; BoT-SORT is a further alternative worth benchmarking for more
-    robust tracking through occlusion (players clustering during set pieces).
+    needs the ``[train]`` extra). Both default to ``supervision.ByteTrack``
+    for tracking but accept any ``soccer_analysis.detection.base.FrameTracker``
+    via their ``tracker=`` argument --
+    ``soccer_analysis.detection.botsort_tracker.BoTSORTTracker`` is a
+    BoT-SORT alternative (Kalman motion model + optional camera-motion
+    compensation, needs the ``[train]`` extra too; see that module's
+    docstring) for more robust tracking through occlusion (players
+    clustering during set pieces).
     """
 
     def get_object_tracks(

@@ -56,6 +56,11 @@ class PipelineConfig(BaseModel):
     'embedding' = EmbeddingTeamClassifier (small-CNN-embedding KMeans;
     needs models/team_embedding.onnx -- see scripts/export_team_embedding_model.py)."""
     team_embedding_model_path: str = "models/team_embedding.onnx"
+    tracker_backend: Literal["bytetrack", "botsort"] = "bytetrack"
+    """'bytetrack' = supervision.ByteTrack (default, no extra deps).
+    'botsort' = BoTSORTTracker (Kalman motion model + camera-motion
+    compensation; needs the [train] extra + boxmot -- see that module's
+    docstring)."""
 
 
 class Settings(BaseSettings):

@@ -33,7 +33,12 @@ import onnxruntime as ort
 import supervision as sv
 from tqdm import tqdm
 
-from soccer_analysis.detection.base import Tracks, run_detection_and_tracking
+from soccer_analysis.detection.base import (
+    ByteTrackAdapter,
+    FrameTracker,
+    Tracks,
+    run_detection_and_tracking,
+)
 from soccer_analysis.io.video import Frame
 
 logger = logging.getLogger(__name__)
@@ -143,6 +148,7 @@ class OnnxDetector:
         nms_iou_threshold: float = 0.45,
         input_size: tuple[int, int] = (640, 640),
         class_name_to_object_type: dict[str, str] | None = None,
+        tracker: FrameTracker | None = None,
     ):
         self.session = ort.InferenceSession(str(model_path), providers=["CPUExecutionProvider"])
         self.input_name = self.session.get_inputs()[0].name
@@ -150,7 +156,7 @@ class OnnxDetector:
         self.confidence = confidence
         self.nms_iou_threshold = nms_iou_threshold
         self.class_names = self._read_class_names()
-        self.tracker = sv.ByteTrack()
+        self.tracker = tracker or ByteTrackAdapter()
         self.class_name_to_object_type = (
             class_name_to_object_type or DEFAULT_CLASS_NAME_TO_OBJECT_TYPE
         )
@@ -185,6 +191,7 @@ class OnnxDetector:
 
         return run_detection_and_tracking(
             detect_all_frames,
+            frames=frames,
             class_names=self.class_names,
             class_name_to_object_type=self.class_name_to_object_type,
             tracker=self.tracker,

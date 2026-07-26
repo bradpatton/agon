@@ -30,26 +30,47 @@ from soccer_analysis.viz.annotate import draw_annotations
 logger = logging.getLogger(__name__)
 
 
-def _build_detector(model_path: Path, preferred_device: str | None, confidence: float) -> Detector:
+def _build_tracker(tracker_backend: str, frame_rate: float):
+    """Picks a FrameTracker per ``PipelineConfig.tracker_backend``.
+
+    'botsort' needs the [train] extra + boxmot -- see BoTSORTTracker's
+    docstring for why (torch is a hard, unconditional import there, even in
+    motion-only mode) and what it actually improves on over ByteTrack.
+    """
+    if tracker_backend == "botsort":
+        from soccer_analysis.detection.botsort_tracker import BoTSORTTracker
+
+        logger.info("Using BoTSORTTracker (with_reid=False, use_cmc=True)")
+        return BoTSORTTracker(frame_rate=max(1, round(frame_rate)))
+
+    return None  # each Detector defaults to ByteTrackAdapter itself
+
+
+def _build_detector(
+    model_path: Path, preferred_device: str | None, confidence: float, tracker=None
+) -> Detector:
     """Picks a Detector backend by model file extension.
 
     ``.onnx`` -> OnnxDetector (default, torch-free, runs on CPU via
     onnxruntime). ``.pt``/others -> UltralyticsDetector (needs the
     ``[train]`` extra; resolves a torch cuda/mps/cpu device). See the
     README's modernization notes for why onnxruntime is the default runtime
-    path.
+    path. ``tracker`` overrides the default ByteTrack tracking (see
+    ``_build_tracker``).
     """
     if model_path.suffix == ".onnx":
         from soccer_analysis.detection.onnx_tracker import OnnxDetector
 
         logger.info("Using OnnxDetector backend (CPUExecutionProvider)")
-        return OnnxDetector(str(model_path), confidence=confidence)
+        return OnnxDetector(str(model_path), confidence=confidence, tracker=tracker)
 
     from soccer_analysis.detection.tracker import UltralyticsDetector
 
     device = resolve_device(preferred_device)
     logger.info("Using UltralyticsDetector backend (device=%s)", device)
-    return UltralyticsDetector(str(model_path), device=device, confidence=confidence)
+    return UltralyticsDetector(
+        str(model_path), device=device, confidence=confidence, tracker=tracker
+    )
 
 
 def _build_pitch_calibrator(
@@ -125,7 +146,10 @@ def run_pipeline(
 
     video_frames = read_video(video_path)
 
-    detector = _build_detector(Path(model_path), config.device, config.detection_confidence)
+    tracker = _build_tracker(config.tracker_backend, config.frame_rate)
+    detector = _build_detector(
+        Path(model_path), config.device, config.detection_confidence, tracker=tracker
+    )
     tracks = detector.get_object_tracks(
         video_frames, read_from_stub=read_from_stub, stub_path=tracks_stub
     )

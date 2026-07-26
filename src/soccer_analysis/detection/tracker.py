@@ -25,7 +25,7 @@ from typing import Any
 import supervision as sv
 from tqdm import tqdm
 
-from soccer_analysis.detection.base import Tracks, run_detection_and_tracking
+from soccer_analysis.detection.base import ByteTrackAdapter, FrameTracker, Tracks, run_detection_and_tracking
 from soccer_analysis.io.video import Frame
 
 logger = logging.getLogger(__name__)
@@ -45,6 +45,7 @@ class UltralyticsDetector:
         device: str = "cpu",
         confidence: float = 0.1,
         class_name_to_object_type: dict[str, str] | None = None,
+        tracker: FrameTracker | None = None,
     ):
         try:
             from ultralytics import YOLO
@@ -57,7 +58,7 @@ class UltralyticsDetector:
         self.model = YOLO(model_path)
         self.model.to(device)
         self.confidence = confidence
-        self.tracker = sv.ByteTrack()
+        self.tracker = tracker or ByteTrackAdapter()
         self.class_name_to_object_type = (
             class_name_to_object_type or DEFAULT_CLASS_NAME_TO_OBJECT_TYPE
         )
@@ -81,6 +82,7 @@ class UltralyticsDetector:
 
         return run_detection_and_tracking(
             detect_all_frames,
+            frames=frames,
             class_names=self.model.names,
             class_name_to_object_type=self.class_name_to_object_type,
             tracker=self.tracker,

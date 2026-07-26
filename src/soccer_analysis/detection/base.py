@@ -2,9 +2,16 @@
 
 Each backend (torch-backed ``UltralyticsDetector``, onnxruntime-backed
 ``OnnxDetector``, ...) only needs to produce per-frame ``supervision.Detections``
-plus a class-id -> class-name map and a class-name -> object-type map. Tracking
-(``supervision.ByteTrack``), the players/referees/ball bucketing, and the
-optional pickle stub cache are implemented once, here.
+plus a class-id -> class-name map and a class-name -> object-type map.
+Tracking, the players/referees/ball bucketing, and the optional pickle stub
+cache are implemented once, here.
+
+The tracker itself is swappable -- anything satisfying
+``update_with_detections(detections, frame) -> Detections`` works, which is
+what makes ``BoTSORTTracker`` (needs the actual frame image for camera-motion
+compensation) a drop-in alongside plain ``supervision.ByteTrack`` (wrapped in
+``ByteTrackAdapter`` below, which just ignores the frame). See
+``soccer_analysis.detection.botsort_tracker`` for that alternative.
 
 ``class_name_to_object_type`` is what makes this generalize across
 checkpoints with different label sets — a soccer-tuned model might expose
@@ -18,15 +25,33 @@ from __future__ import annotations
 
 import pickle
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Protocol
 
 import pandas as pd
 import supervision as sv
 from tqdm import tqdm
 
 from soccer_analysis.geometry.bbox import BBox, get_center_of_bbox, get_foot_position
+from soccer_analysis.io.video import Frame
 
 Tracks = dict[str, list[dict[int, dict]]]
+
+
+class FrameTracker(Protocol):
+    def update_with_detections(
+        self, detections: sv.Detections, frame: Frame
+    ) -> sv.Detections: ...
+
+
+class ByteTrackAdapter:
+    """Wraps supervision.ByteTrack to match FrameTracker's signature (it
+    doesn't use the frame image at all -- pure IoU/Kalman tracking)."""
+
+    def __init__(self, byte_track: sv.ByteTrack | None = None):
+        self._tracker = byte_track or sv.ByteTrack()
+
+    def update_with_detections(self, detections: sv.Detections, frame: Frame) -> sv.Detections:
+        return self._tracker.update_with_detections(detections)
 
 
 def add_position_to_tracks(tracks: Tracks) -> None:
@@ -54,9 +79,10 @@ def interpolate_ball_positions(
 
 def run_detection_and_tracking(
     detect_all_frames: Callable[[], list[sv.Detections]],
+    frames: list[Frame],
     class_names: dict[int, str],
     class_name_to_object_type: dict[str, str],
-    tracker: sv.ByteTrack,
+    tracker: FrameTracker,
     read_from_stub: bool = False,
     stub_path: str | Path | None = None,
 ) -> Tracks:
@@ -66,7 +92,7 @@ def run_detection_and_tracking(
 
     detections_per_frame = detect_all_frames()
     tracks = _assemble_tracks(
-        detections_per_frame, class_names, class_name_to_object_type, tracker
+        detections_per_frame, frames, class_names, class_name_to_object_type, tracker
     )
 
     if stub_path is not None:
@@ -79,14 +105,17 @@ def run_detection_and_tracking(
 
 def _assemble_tracks(
     detections_per_frame: list[sv.Detections],
+    frames: list[Frame],
     class_names: dict[int, str],
     class_name_to_object_type: dict[str, str],
-    tracker: sv.ByteTrack,
+    tracker: FrameTracker,
 ) -> Tracks:
     tracks: Tracks = {"players": [], "referees": [], "ball": []}
 
-    for detection_supervision in tqdm(detections_per_frame, desc="Tracking objects"):
-        detection_with_tracks = tracker.update_with_detections(detection_supervision)
+    for frame, detection_supervision in tqdm(
+        zip(frames, detections_per_frame), total=len(frames), desc="Tracking objects"
+    ):
+        detection_with_tracks = tracker.update_with_detections(detection_supervision, frame)
 
         tracks["players"].append({})
         tracks["referees"].append({})

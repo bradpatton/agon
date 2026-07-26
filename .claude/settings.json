@@ -34,12 +34,18 @@
       "Bash(cd \"/Users/bradleypatton/Documents/Claude/Projects/untitled folder\" && ls -la models/team_embedding.onnx && rm -rf /tmp/export-env)",
       "Bash(ls -d /tmp/bench-env 2>&1)",
       "Read(//private/tmp/bench-env/**)",
-      "Bash(ffmpeg -y -v error -ss 3 -i output/benchmark_embedding.mp4 -frames:v 1 -q:v 2 /tmp/embedding_frame.jpg)"
+      "Bash(ffmpeg -y -v error -ss 3 -i output/benchmark_embedding.mp4 -frames:v 1 -q:v 2 /tmp/embedding_frame.jpg)",
+      "Bash(curl -s \"https://pypi.org/pypi/boxmot/json\")",
+      "Bash(python3 -c ' *)",
+      "Bash(rm -rf /tmp/botsort-env)",
+      "Bash(/tmp/botsort-env/bin/python -c ' *)",
+      "Bash(cd \"/Users/bradleypatton/Documents/Claude/Projects/untitled folder\" && rm -rf output /tmp/botsort-env && git status --short)"
     ],
     "additionalDirectories": [
       "/private/tmp/bench-env",
       "/tmp",
-      "/private/tmp/export-env"
+      "/private/tmp/export-env",
+      "/private/tmp/botsort-env"
     ]
   }
 }
