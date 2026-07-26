@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# uv
+.uv/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Project data (never commit large media/model/derived artifacts)
+input_videos/*
+!input_videos/put_input_video_here.txt
+models/*
+!models/put_models_here.txt
+output_videos/
+outputs/
+data/
+stubs/
+*.mp4
+*.avi
+*.mov
+*.pt
+*.pkl
+
+# Notebook checkpoints
+.ipynb_checkpoints/
