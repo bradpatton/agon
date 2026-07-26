@@ -1,0 +1,8 @@
+pipeline:
+  detection_confidence: 0.1
+  detection_batch_size: 20
+  ball_max_assignment_distance_px: 70.0
+  speed_frame_window: 5
+  frame_rate: 24.0
+  team_kmeans_random_state: 0
+  device: null # auto-detect cuda / mps / cpu

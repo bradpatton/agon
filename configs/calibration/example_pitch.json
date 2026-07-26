@@ -1,0 +1,11 @@
+{
+  "_comment": "Pixel-to-pitch calibration for the tutorial's sample clip (08fd33_4.mp4) only. The four pixel_vertices trace the visible pitch boundary corners in that specific camera framing and will NOT be correct for any other video/camera angle. Recalibrate by picking the pixel coordinates of the four pitch corners visible in your footage's first frame.",
+  "pixel_vertices": [
+    [110, 1035],
+    [265, 275],
+    [910, 260],
+    [1640, 915]
+  ],
+  "court_length_m": 23.32,
+  "court_width_m": 68.0
+}
