@@ -75,7 +75,7 @@ def _segment_pitch_lines(frame: Frame) -> npt.NDArray[np.uint8]:
     grass_mask = cv2.inRange(hsv, (35, 40, 40), (85, 255, 255))
     grass_mask = cv2.dilate(grass_mask, np.ones((25, 25), np.uint8))
     line_mask = cv2.inRange(hsv, (0, 0, 170), (180, 60, 255))
-    return cv2.bitwise_and(line_mask, grass_mask)
+    return cv2.bitwise_and(line_mask, grass_mask)  # type: ignore[return-value]  # cv2 stubs: dtype imprecise
 
 
 def _detect_center_circle(
@@ -206,9 +206,7 @@ class PitchKeypointCalibrator:
             previous_angle = angle
 
             psi = math.pi / 2 - angle
-            rotation = np.array(
-                [[math.cos(psi), -math.sin(psi)], [math.sin(psi), math.cos(psi)]]
-            )
+            rotation = np.array([[math.cos(psi), -math.sin(psi)], [math.sin(psi), math.cos(psi)]])
             # Semi-major axis as the scale reference -- see module docstring.
             scale = CENTER_CIRCLE_RADIUS_M / semi_major
             self._transforms[frame_idx] = ((cx, cy), rotation, scale)

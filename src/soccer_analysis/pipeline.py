@@ -17,12 +17,29 @@ from soccer_analysis.analytics.player_ball_assigner import PlayerBallAssigner
 from soccer_analysis.analytics.speed_distance import SpeedDistanceEstimator
 from soccer_analysis.camera.camera_movement_estimator import CameraMovementEstimator
 from soccer_analysis.config import CalibrationConfig, PipelineConfig, resolve_device
-from soccer_analysis.detection.base import Tracks, add_position_to_tracks, interpolate_ball_positions
-from soccer_analysis.export.schema import FrameRecord, MatchSummary, build_frame_records, build_match_summary
-from soccer_analysis.export.writer import write_jsonl, write_match_summary, write_parquet, write_schema_json
+from soccer_analysis.detection.base import (
+    Tracks,
+    add_position_to_tracks,
+    interpolate_ball_positions,
+)
+from soccer_analysis.export.schema import (
+    FrameRecord,
+    MatchSummary,
+    build_frame_records,
+    build_match_summary,
+)
+from soccer_analysis.export.writer import (
+    write_jsonl,
+    write_match_summary,
+    write_parquet,
+    write_schema_json,
+)
 from soccer_analysis.geometry.bbox import Point
 from soccer_analysis.geometry.pitch_keypoint_calibrator import PitchKeypointCalibrator
-from soccer_analysis.geometry.view_transformer import ViewTransformer, add_transformed_position_to_tracks
+from soccer_analysis.geometry.view_transformer import (
+    ViewTransformer,
+    add_transformed_position_to_tracks,
+)
 from soccer_analysis.interfaces import Detector, PitchCalibrator, TeamClassifier
 from soccer_analysis.io.video import read_video, save_video
 from soccer_analysis.team.embedding_team_assigner import EmbeddingTeamClassifier
@@ -104,17 +121,19 @@ def _build_pitch_calibrator(
     what it actually solves and its real limitations before trusting its
     output over the static calibration.
     """
+    calibrator: PitchCalibrator
     if mode == "dynamic":
         calibrator = PitchKeypointCalibrator(court_width_m=calibration.court_width_m)
-        calibrator.calibrate(video_frames)
-        return calibrator
+    else:
+        calibrator = ViewTransformer(calibration)
 
-    calibrator = ViewTransformer(calibration)
     calibrator.calibrate(video_frames)
     return calibrator
 
 
-def _build_team_classifier(mode: str, embedding_model_path: str, random_state: int) -> TeamClassifier:
+def _build_team_classifier(
+    mode: str, embedding_model_path: str, random_state: int
+) -> TeamClassifier:
     """Picks a TeamClassifier per ``PipelineConfig.team_classifier``.
 
     'embedding' needs a model exported by scripts/export_team_embedding_model.py
@@ -266,8 +285,11 @@ def run_pipeline(
         needs_records = {"jsonl", "parquet"} & set(formats)
         if needs_records:
             frame_records = build_frame_records(
-                tracks, team_ball_control_array.tolist(), camera_movement_per_frame,
-                video_id, config.frame_rate,
+                tracks,
+                team_ball_control_array.tolist(),
+                camera_movement_per_frame,
+                video_id,
+                config.frame_rate,
             )
             if "jsonl" in formats:
                 write_jsonl(frame_records, export_dir / f"{video_id}_frames.jsonl")

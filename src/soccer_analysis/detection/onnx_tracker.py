@@ -60,7 +60,7 @@ def _letterbox(
     padded = cv2.copyMakeBorder(
         resized, top, bottom, left, right, cv2.BORDER_CONSTANT, value=(114, 114, 114)
     )
-    return padded, scale, (float(left), float(top))
+    return padded, scale, (float(left), float(top))  # type: ignore[return-value]  # cv2 stubs: dtype imprecise
 
 
 def _preprocess(
@@ -119,13 +119,13 @@ def _postprocess(
     )
     if len(indices) == 0:
         return sv.Detections.empty()
-    indices = np.array(indices).reshape(-1)
+    keep_indices = np.array(indices).reshape(-1)
 
-    xyxy = np.stack([x1, y1, x1 + w, y1 + h], axis=1)[indices]
+    xyxy = np.stack([x1, y1, x1 + w, y1 + h], axis=1)[keep_indices]
     return sv.Detections(
         xyxy=xyxy.astype(np.float32),
-        confidence=confidences[indices].astype(np.float32),
-        class_id=class_ids[indices].astype(int),
+        confidence=confidences[keep_indices].astype(np.float32),
+        class_id=class_ids[keep_indices].astype(int),
     )
 
 

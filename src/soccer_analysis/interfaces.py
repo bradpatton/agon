@@ -9,6 +9,7 @@ for the specific alternatives called out below.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
 from soccer_analysis.geometry.bbox import BBox, Point
@@ -36,7 +37,7 @@ class Detector(Protocol):
         self,
         frames: list[Frame],
         read_from_stub: bool = False,
-        stub_path: str | None = None,
+        stub_path: str | Path | None = None,
     ) -> dict[str, list[dict[int, dict[str, Any]]]]: ...
 
 
@@ -52,7 +53,11 @@ class TeamClassifier(Protocol):
     docstring for what it still can't do).
     """
 
-    def assign_team_color(self, frame: Frame, player_detections: dict[int, dict[str, Any]]) -> None: ...
+    team_colors: dict[int, Any]
+
+    def assign_team_color(
+        self, frame: Frame, player_detections: dict[int, dict[str, Any]]
+    ) -> None: ...
 
     def get_player_team(self, frame: Frame, player_bbox: BBox, player_id: int) -> int: ...
 

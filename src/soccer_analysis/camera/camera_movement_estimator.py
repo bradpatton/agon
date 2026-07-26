@@ -87,31 +87,32 @@ class CameraMovementEstimator:
         camera_movement: list[Point] = [(0.0, 0.0)] * len(frames)
 
         old_gray = cv2.cvtColor(frames[0], cv2.COLOR_BGR2GRAY)
-        old_features = cv2.goodFeaturesToTrack(old_gray, **self.features)
+        # mypy can't resolve cv2's overloads through a **dict[str, object]
+        # unpack below; the dict's actual values match the expected kwarg
+        # types at runtime.
+        old_features = cv2.goodFeaturesToTrack(old_gray, **self.features)  # type: ignore[call-overload]
 
         for frame_num in tqdm(range(1, len(frames)), desc="Estimating camera movement"):
             frame_gray = cv2.cvtColor(frames[frame_num], cv2.COLOR_BGR2GRAY)
             new_features, _, _ = cv2.calcOpticalFlowPyrLK(
                 old_gray, frame_gray, old_features, None, **self.lk_params
-            )
+            )  # type: ignore[call-overload]
 
             max_distance = 0.0
             camera_movement_x, camera_movement_y = 0.0, 0.0
 
-            for new, old in zip(new_features, old_features):
+            for new, old in zip(new_features, old_features, strict=True):
                 new_point = tuple(new.ravel())
                 old_point = tuple(old.ravel())
 
                 distance = measure_distance(new_point, old_point)
                 if distance > max_distance:
                     max_distance = distance
-                    camera_movement_x, camera_movement_y = measure_xy_distance(
-                        old_point, new_point
-                    )
+                    camera_movement_x, camera_movement_y = measure_xy_distance(old_point, new_point)
 
             if max_distance > self.minimum_distance:
                 camera_movement[frame_num] = (camera_movement_x, camera_movement_y)
-                old_features = cv2.goodFeaturesToTrack(frame_gray, **self.features)
+                old_features = cv2.goodFeaturesToTrack(frame_gray, **self.features)  # type: ignore[call-overload]
 
             old_gray = frame_gray.copy()
 

@@ -62,6 +62,11 @@ class BoTSORTTracker:
         if len(detections) == 0:
             dets = np.empty((0, 6), dtype=np.float32)
         else:
+            # Both are always populated by our own Detector backends (which
+            # always construct sv.Detections with confidence/class_id set),
+            # even though supervision types them as optional in general.
+            assert detections.confidence is not None
+            assert detections.class_id is not None
             dets = np.concatenate(
                 [
                     detections.xyxy.astype(np.float32),

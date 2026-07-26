@@ -22,7 +22,9 @@ def process(
     calibration: Path = typer.Option(
         ..., "--calibration", exists=True, help="Pitch calibration JSON for this camera angle."
     ),
-    output_dir: Path = typer.Option(Path("output"), "--output-dir", help="Where outputs are written."),
+    output_dir: Path = typer.Option(
+        Path("output"), "--output-dir", help="Where outputs are written."
+    ),
     formats: list[str] = typer.Option(
         ["jsonl", "parquet", "summary"],
         "--format",
@@ -42,13 +44,16 @@ def process(
 
     unknown = set(formats) - set(EXPORT_FORMATS)
     if unknown:
-        raise typer.BadParameter(f"Unknown format(s) {sorted(unknown)}; choose from {EXPORT_FORMATS}")
+        raise typer.BadParameter(
+            f"Unknown format(s) {sorted(unknown)}; choose from {EXPORT_FORMATS}"
+        )
 
     settings = Settings.from_yaml(config_path) if config_path else Settings()
     calibration_config = CalibrationConfig.from_json_file(calibration)
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    output_video_path = output_dir / f"{input_video.stem}_annotated.mp4" if "video" in formats else None
+    render_video = "video" in formats
+    output_video_path = output_dir / f"{input_video.stem}_annotated.mp4" if render_video else None
     data_formats = [f for f in formats if f != "video"]
 
     result = run_pipeline(

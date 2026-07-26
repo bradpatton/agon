@@ -24,8 +24,9 @@ populate ``referees`` (see the ``OnnxDetector`` docstring).
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, Protocol
+from typing import Any, Protocol
 
 import numpy as np
 import pandas as pd
@@ -57,9 +58,7 @@ DEFAULT_CLASS_NAME_TO_OBJECT_TYPE = {
 
 
 class FrameTracker(Protocol):
-    def update_with_detections(
-        self, detections: sv.Detections, frame: Frame
-    ) -> sv.Detections: ...
+    def update_with_detections(self, detections: sv.Detections, frame: Frame) -> sv.Detections: ...
 
 
 class ByteTrackAdapter:
@@ -99,7 +98,9 @@ def interpolate_ball_positions(
     df_ball_positions = df_ball_positions.interpolate()
     df_ball_positions = df_ball_positions.bfill()
 
-    return [{1: {"bbox": row, "class_name": "ball"}} for row in df_ball_positions.to_numpy().tolist()]
+    return [
+        {1: {"bbox": row, "class_name": "ball"}} for row in df_ball_positions.to_numpy().tolist()
+    ]
 
 
 def _tracks_to_jsonable(tracks: Tracks) -> dict:
@@ -157,7 +158,7 @@ def _assemble_tracks(
     tracks: Tracks = {"players": [], "referees": [], "ball": []}
 
     for frame, detection_supervision in tqdm(
-        zip(frames, detections_per_frame), total=len(frames), desc="Tracking objects"
+        zip(frames, detections_per_frame, strict=True), total=len(frames), desc="Tracking objects"
     ):
         detection_with_tracks = tracker.update_with_detections(detection_supervision, frame)
 
@@ -169,8 +170,10 @@ def _assemble_tracks(
         # tracker.py): always stored under a fixed track id of 1.
         for frame_detection in detection_with_tracks:
             bbox = frame_detection[0].tolist()
-            cls_id = frame_detection[3]
-            track_id = frame_detection[4]
+            # supervision's stubs type Detections iteration loosely (Optional
+            # values); at runtime a tracked detection always has both set.
+            cls_id = int(frame_detection[3])  # type: ignore[arg-type]
+            track_id = int(frame_detection[4])  # type: ignore[arg-type]
             class_name = class_names[cls_id]
             object_type = class_name_to_object_type.get(class_name)
             if object_type in ("players", "referees"):
@@ -182,7 +185,7 @@ def _assemble_tracks(
 
         for frame_detection in detection_supervision:
             bbox = frame_detection[0].tolist()
-            cls_id = frame_detection[3]
+            cls_id = int(frame_detection[3])
             class_name = class_names[cls_id]
             object_type = class_name_to_object_type.get(class_name)
             if object_type == "ball":

@@ -94,11 +94,11 @@ class EmbeddingTeamClassifier:
         self.kmeans = kmeans
 
         for cluster_id in (0, 1):
-            members = [c for c, label in zip(colors, labels) if label == cluster_id]
+            members = [c for c, label in zip(colors, labels, strict=True) if label == cluster_id]
             mean_color = np.mean(members, axis=0) if members else np.array([128.0, 128.0, 128.0])
             self.team_colors[cluster_id + 1] = mean_color
 
-        for player_id, label in zip(player_ids, labels):
+        for player_id, label in zip(player_ids, labels, strict=True):
             self.player_team_dict[player_id] = int(label) + 1
 
     def get_player_team(self, frame: Frame, player_bbox: BBox, player_id: int) -> int:

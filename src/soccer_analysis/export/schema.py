@@ -11,7 +11,7 @@ optional field is not a breaking change and doesn't need a bump).
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 SCHEMA_VERSION = "1.0.0"
 
 
-class ObjectClass(str, Enum):
+class ObjectClass(StrEnum):
     PLAYER = "player"
     GOALKEEPER = "goalkeeper"
     REFEREE = "referee"
@@ -61,7 +61,9 @@ class ObjectRecord(BaseModel):
         "found no usable reference in this frame (see PitchKeypointCalibrator).",
     )
     speed_kmh: float | None = None
-    distance_m: float | None = Field(default=None, description="Cumulative distance covered so far.")
+    distance_m: float | None = Field(
+        default=None, description="Cumulative distance covered so far."
+    )
     has_ball: bool = False
 
     model_config = {"populate_by_name": True}
@@ -113,14 +115,14 @@ def build_frame_records(
                 objects.append(
                     ObjectRecord(
                         track_id=int(track_id),
-                        **{
-                            "class": object_class_for(object_type, info.get("class_name", ""))
-                        },
+                        **{"class": object_class_for(object_type, info.get("class_name", ""))},
                         team=info.get("team"),
                         bbox_px=tuple(info["bbox"]),
                         position_px=tuple(info["position"]),
                         position_pitch_m=(
-                            tuple(position_transformed) if position_transformed is not None else None
+                            tuple(position_transformed)
+                            if position_transformed is not None
+                            else None
                         ),
                         speed_kmh=info.get("speed"),
                         distance_m=info.get("distance"),
@@ -133,7 +135,7 @@ def build_frame_records(
                 video_id=video_id,
                 frame_id=frame_idx,
                 timestamp_s=frame_idx / frame_rate,
-                camera_movement_px=tuple(camera_movement_per_frame[frame_idx]),
+                camera_movement_px=camera_movement_per_frame[frame_idx],
                 team_ball_control=int(team_ball_control[frame_idx]),
                 objects=objects,
             )
@@ -158,7 +160,9 @@ def build_match_summary(
     player_stats: dict[int, dict[str, Any]] = {}
     for frame_track in tracks["players"]:
         for track_id, info in frame_track.items():
-            stats = player_stats.setdefault(int(track_id), {"team": None, "distances": [], "speeds": []})
+            stats = player_stats.setdefault(
+                int(track_id), {"team": None, "distances": [], "speeds": []}
+            )
             if info.get("team") is not None:
                 stats["team"] = info["team"]
             if info.get("distance") is not None:

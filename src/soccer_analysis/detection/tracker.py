@@ -50,8 +50,7 @@ class UltralyticsDetector:
             from ultralytics import YOLO
         except ImportError as e:
             raise ImportError(
-                "UltralyticsDetector needs the 'train' extra: "
-                "pip install 'soccer-analysis[train]'"
+                "UltralyticsDetector needs the 'train' extra: pip install 'soccer-analysis[train]'"
             ) from e
 
         self.model = YOLO(model_path)

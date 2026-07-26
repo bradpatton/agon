@@ -32,7 +32,7 @@ def read_video(video_path: str | Path) -> list[Frame]:
             ok, frame = cap.read()
             if not ok:
                 break
-            frames.append(frame)
+            frames.append(frame)  # type: ignore[arg-type]  # cv2 stubs: Mat|ndarray vs our uint8 alias
     finally:
         cap.release()
 
@@ -64,7 +64,7 @@ def save_video(
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    fourcc_code = cv2.VideoWriter_fourcc(*fourcc)
+    fourcc_code = cv2.VideoWriter.fourcc(*fourcc)
     height, width = frames[0].shape[:2]
     writer = cv2.VideoWriter(str(output_path), fourcc_code, fps, (width, height))
     if not writer.isOpened():

@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # Core dependency set only (onnxruntime, not the [train] extra's
+      # torch/ultralytics/boxmot) -- this is deliberately what most users
+      # and CI should exercise, since it's the default runtime path. See
+      # the project plan's Modernization notes for why torch isn't a core
+      # dependency.
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      - name: Ruff lint
+        run: uv run ruff check src/ tests/
+
+      - name: Ruff format check
+        run: uv run ruff format --check src/ tests/
+
+      - name: mypy
+        run: uv run mypy src/soccer_analysis
+
+      - name: pytest
+        run: uv run pytest tests/ --cov=src/soccer_analysis --cov-report=term-missing
