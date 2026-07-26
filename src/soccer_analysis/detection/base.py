@@ -27,6 +27,7 @@ import pickle
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
+import numpy as np
 import pandas as pd
 import supervision as sv
 from tqdm import tqdm
@@ -35,6 +36,24 @@ from soccer_analysis.geometry.bbox import BBox, get_center_of_bbox, get_foot_pos
 from soccer_analysis.io.video import Frame
 
 Tracks = dict[str, list[dict[int, dict]]]
+
+# Shared by both Detector implementations so a given checkpoint's classes map
+# the same way regardless of backend. A soccer-fine-tuned checkpoint exposes
+# player/goalkeeper/referee/ball; a generic COCO checkpoint (the only kind
+# available without training one) only has person/sports ball. Keeping both
+# conventions in one place matters in practice, not just in theory: this is
+# exactly the gap that made UltralyticsDetector silently track zero players
+# against a COCO checkpoint until this default was unified with
+# OnnxDetector's (which already had to handle the COCO case) -- caught by
+# validating both backends end-to-end in Docker against the same checkpoint.
+DEFAULT_CLASS_NAME_TO_OBJECT_TYPE = {
+    "player": "players",
+    "goalkeeper": "players",
+    "referee": "referees",
+    "ball": "ball",
+    "person": "players",
+    "sports ball": "ball",
+}
 
 
 class FrameTracker(Protocol):
@@ -68,7 +87,13 @@ def add_position_to_tracks(tracks: Tracks) -> None:
 def interpolate_ball_positions(
     ball_positions: list[dict[int, dict[str, Any]]],
 ) -> list[dict[int, dict[str, Any]]]:
-    boxes = [entry.get(1, {}).get("bbox", []) for entry in ball_positions]
+    # A missing detection defaults to 4 NaNs, not []: pandas can't infer a
+    # 4-column frame from empty rows, and reliably does so when the ball
+    # goes completely undetected for the whole clip (weak ball-class
+    # detection is common, e.g. the tiny/distant ball against a generic
+    # COCO checkpoint) -- confirmed by hitting this exact crash validating
+    # UltralyticsDetector end-to-end for the first time in Docker.
+    boxes = [entry.get(1, {}).get("bbox", [np.nan] * 4) for entry in ball_positions]
     df_ball_positions = pd.DataFrame(boxes, columns=["x1", "y1", "x2", "y2"])
 
     df_ball_positions = df_ball_positions.interpolate()

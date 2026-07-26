@@ -39,7 +39,14 @@
       "Bash(python3 -c ' *)",
       "Bash(rm -rf /tmp/botsort-env)",
       "Bash(/tmp/botsort-env/bin/python -c ' *)",
-      "Bash(cd \"/Users/bradleypatton/Documents/Claude/Projects/untitled folder\" && rm -rf output /tmp/botsort-env && git status --short)"
+      "Bash(cd \"/Users/bradleypatton/Documents/Claude/Projects/untitled folder\" && rm -rf output /tmp/botsort-env && git status --short)",
+      "Bash(rm -rf .venv)",
+      "Bash(docker --version)",
+      "Bash(docker build *)",
+      "Bash(docker run *)",
+      "Bash(docker run --rm -v __CMDSUB_OUTPUT__/input_videos:/data/input_videos:ro -v __CMDSUB_OUTPUT__/models:/data/models:ro -v __CMDSUB_OUTPUT__/configs:/data/configs:ro -v __CMDSUB_OUTPUT__/docker_output:/data/output -w /data --entrypoint /bin/bash soccer-analysis:train -c ' *)",
+      "Bash(docker run --rm -v __CMDSUB_OUTPUT__/input_videos:/data/input_videos:ro -v __CMDSUB_OUTPUT__/models:/data/models:ro -v __CMDSUB_OUTPUT__/configs:/data/configs:ro -w /data --entrypoint /bin/bash soccer-analysis:train -c ' *)",
+      "Bash(rm -rf docker_output)"
     ],
     "additionalDirectories": [
       "/private/tmp/bench-env",

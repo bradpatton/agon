@@ -12,6 +12,13 @@ from soccer_analysis.geometry.bbox import BBox, get_bbox_width, get_center_of_bb
 from soccer_analysis.io.video import Frame
 
 
+def _is_valid_bbox(bbox: BBox) -> bool:
+    """False for NaN-filled boxes: the ball's bbox is NaN for the whole clip
+    when it was never detected at all (see interpolate_ball_positions) --
+    drawing that would otherwise crash on int(nan)."""
+    return not any(np.isnan(v) for v in bbox)
+
+
 def draw_ellipse(
     frame: Frame, bbox: BBox, color: tuple[int, int, int], track_id: int | None = None
 ) -> Frame:
@@ -126,7 +133,8 @@ def draw_annotations(
             frame = draw_ellipse(frame, referee["bbox"], (0, 255, 255))
 
         for ball in ball_dict.values():
-            frame = draw_triangle(frame, ball["bbox"], (0, 255, 0))
+            if _is_valid_bbox(ball["bbox"]):
+                frame = draw_triangle(frame, ball["bbox"], (0, 255, 0))
 
         frame = draw_team_ball_control(frame, frame_num, team_ball_control)
 

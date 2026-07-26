@@ -36,12 +36,16 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Torch-backed detector (soccer_analysis.detection.tracker.UltralyticsDetector)
+# Torch-backed detector (soccer_analysis.detection.tracker.UltralyticsDetector),
+# BoT-SORT tracking (soccer_analysis.detection.botsort_tracker.BoTSORTTracker),
 # and training/fine-tuning workflows. Not needed for the default onnxruntime
 # runtime path -- see the Modernization notes in the project plan for why
-# torch isn't a core dependency here.
+# torch isn't a core dependency here. boxmot (BoT-SORT) imports torch
+# unconditionally at import time even in motion-only mode, so it lives here
+# too, not as a separate lighter extra.
 train = [
     "ultralytics>=8.3",
+    "boxmot>=19.0",
 ]
 dev = [
     "pytest>=8.0",

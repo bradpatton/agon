@@ -25,17 +25,16 @@ from typing import Any
 import supervision as sv
 from tqdm import tqdm
 
-from soccer_analysis.detection.base import ByteTrackAdapter, FrameTracker, Tracks, run_detection_and_tracking
+from soccer_analysis.detection.base import (
+    DEFAULT_CLASS_NAME_TO_OBJECT_TYPE,
+    ByteTrackAdapter,
+    FrameTracker,
+    Tracks,
+    run_detection_and_tracking,
+)
 from soccer_analysis.io.video import Frame
 
 logger = logging.getLogger(__name__)
-
-DEFAULT_CLASS_NAME_TO_OBJECT_TYPE = {
-    "player": "players",
-    "goalkeeper": "players",
-    "referee": "referees",
-    "ball": "ball",
-}
 
 
 class UltralyticsDetector:

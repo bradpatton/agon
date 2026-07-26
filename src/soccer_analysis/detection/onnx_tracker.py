@@ -34,6 +34,7 @@ import supervision as sv
 from tqdm import tqdm
 
 from soccer_analysis.detection.base import (
+    DEFAULT_CLASS_NAME_TO_OBJECT_TYPE,
     ByteTrackAdapter,
     FrameTracker,
     Tracks,
@@ -42,18 +43,6 @@ from soccer_analysis.detection.base import (
 from soccer_analysis.io.video import Frame
 
 logger = logging.getLogger(__name__)
-
-DEFAULT_CLASS_NAME_TO_OBJECT_TYPE = {
-    "player": "players",
-    "goalkeeper": "players",
-    "referee": "referees",
-    "ball": "ball",
-    # Generic COCO checkpoints have no soccer-specific classes: map the
-    # closest COCO labels so the pipeline still runs (see module docstring
-    # for the "referees" limitation this implies).
-    "person": "players",
-    "sports ball": "ball",
-}
 
 
 def _letterbox(

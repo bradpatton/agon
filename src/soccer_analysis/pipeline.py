@@ -73,6 +73,25 @@ def _build_detector(
     )
 
 
+def _first_frame_with_enough_players(player_tracks: list[dict], min_players: int = 2) -> int:
+    """Finds the first frame with enough confirmed player tracks to seed
+    team-color KMeans clustering (needs >=2 samples for 2 clusters).
+
+    Frame 0 isn't reliably usable for this: trackers like ByteTrack often
+    require a short hit-streak before confirming a track, so frame 0 can
+    have zero confirmed player tracks even when raw detections exist --
+    confirmed by hitting this exact crash validating UltralyticsDetector
+    end-to-end in Docker, where frame 0 detected 17 people but confirmed
+    zero tracks yet.
+    """
+    for frame_num, players in enumerate(player_tracks):
+        if len(players) >= min_players:
+            return frame_num
+    raise ValueError(
+        f"No frame has >= {min_players} tracked players -- can't seed team-color clustering."
+    )
+
+
 def _build_pitch_calibrator(
     calibration: CalibrationConfig, mode: str, video_frames: list
 ) -> PitchCalibrator:
@@ -177,7 +196,8 @@ def run_pipeline(
     team_assigner = _build_team_classifier(
         config.team_classifier, config.team_embedding_model_path, config.team_kmeans_random_state
     )
-    team_assigner.assign_team_color(video_frames[0], tracks["players"][0])
+    seed_frame = _first_frame_with_enough_players(tracks["players"])
+    team_assigner.assign_team_color(video_frames[seed_frame], tracks["players"][seed_frame])
     for frame_num, player_track in enumerate(tracks["players"]):
         for player_id, track in player_track.items():
             team = team_assigner.get_player_team(video_frames[frame_num], track["bbox"], player_id)
