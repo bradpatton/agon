@@ -5,7 +5,33 @@
       "Bash(timeout 90 uv lock)",
       "Bash(uv lock *)",
       "Bash(uv sync *)",
-      "Bash(git add *)"
+      "Bash(git add *)",
+      "Bash(ffmpeg -version)",
+      "Bash(ffprobe -v error -select_streams v:0 -show_entries stream=width,height,r_frame_rate,codec_name -show_entries format=duration -of default=noprint_wrappers=1 \"input_videos/Pre.Season.Friendly.2025.08.03.Manchester.United.Vs.Everton.1080p.AHDTV.x264-DARKSPORT.mkv\")",
+      "Read(//tmp/frame_check/**)",
+      "Read(//private/tmp/frame_check/**)",
+      "Bash(ffmpeg -y -v warning -ss 2380 -i \"input_videos/Pre.Season.Friendly.2025.08.03.Manchester.United.Vs.Everton.1080p.AHDTV.x264-DARKSPORT.mkv\" -t 40 -an -c:v libx264 -preset veryfast -crf 20 \"input_videos/benchmark_clip.mp4\")",
+      "Bash(ffprobe -v error -select_streams v:0 -show_entries stream=width,height,r_frame_rate,nb_frames -show_entries format=duration -of default=noprint_wrappers=1 input_videos/benchmark_clip.mp4)",
+      "Bash(ffmpeg -y -v warning -ss 2380 -i \"input_videos/Pre.Season.Friendly.2025.08.03.Manchester.United.Vs.Everton.1080p.AHDTV.x264-DARKSPORT.mkv\" -t 12 -an -vf \"fps=15\" -c:v libx264 -preset veryfast -crf 20 \"input_videos/benchmark_clip.mp4\")",
+      "Bash(ffmpeg -y -v error -i input_videos/benchmark_clip.mp4 -frames:v 1 -q:v 2 /tmp/frame_check/calib_ref.jpg)",
+      "Bash(uv venv *)",
+      "Bash(uv pip *)",
+      "Bash(/tmp/export-env/bin/python -c ' *)",
+      "Bash(rm -rf /tmp/export-env)",
+      "Bash(rm -rf /tmp/frame_check)",
+      "Bash(rm -rf /tmp/bench-env)",
+      "Bash(/tmp/bench-env/bin/python -c ' *)",
+      "Bash(mkdir -p output)",
+      "Bash(ffmpeg -y -v error -i output/benchmark_annotated.avi -frames:v 1 -q:v 2 /tmp/annotated_frame0.jpg)",
+      "Bash(ffmpeg -y -v error -ss 5 -i output/benchmark_annotated.avi -frames:v 1 -q:v 2 /tmp/annotated_frame_mid.jpg)",
+      "Bash(ffmpeg -y -v error -ss 3 -i output/benchmark_annotated.mp4 -frames:v 1 -q:v 2 /tmp/annotated_frame.jpg)",
+      "Read(//tmp/**)",
+      "Read(//private/tmp/**)",
+      "Bash(git check-ignore *)",
+      "Bash(cd \"/Users/bradleypatton/Documents/Claude/Projects/untitled folder\" && git diff --stat && rm -rf /tmp/bench-env /tmp/annotated_frame*.jpg output)"
+    ],
+    "additionalDirectories": [
+      "/private/tmp/bench-env"
     ]
   }
 }

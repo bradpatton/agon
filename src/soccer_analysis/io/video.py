@@ -43,17 +43,37 @@ def read_video(video_path: str | Path) -> list[Frame]:
     return frames
 
 
-def save_video(frames: list[Frame], output_path: str | Path, fps: float = 24.0) -> None:
-    """Write a list of frames out as a video file."""
+def save_video(
+    frames: list[Frame], output_path: str | Path, fps: float = 24.0, fourcc: str = "avc1"
+) -> None:
+    """Write a list of frames out as an H.264 .mp4 by default.
+
+    OpenCV's video I/O backend is highly platform/build-dependent — some
+    ``opencv-python`` wheels ship without FFMPEG support at all (only
+    AVFoundation on macOS, for instance), in which case codec/container
+    combinations that work elsewhere (e.g. XVID/.avi) silently fail to open
+    and ``cv2.VideoWriter.write()`` becomes a silent no-op rather than an
+    error. H.264/.mp4 (``avc1``) is the most broadly supported combination
+    across builds; this still checks ``isOpened()`` explicitly and raises
+    rather than reporting success with nothing written, since that failure
+    mode is exactly what caused this to need fixing in the first place.
+    """
     if not frames:
         raise ValueError("Cannot save an empty list of frames")
 
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    fourcc = cv2.VideoWriter_fourcc(*"XVID")
+    fourcc_code = cv2.VideoWriter_fourcc(*fourcc)
     height, width = frames[0].shape[:2]
-    writer = cv2.VideoWriter(str(output_path), fourcc, fps, (width, height))
+    writer = cv2.VideoWriter(str(output_path), fourcc_code, fps, (width, height))
+    if not writer.isOpened():
+        raise RuntimeError(
+            f"cv2.VideoWriter failed to open for {output_path} with fourcc={fourcc!r}. "
+            "This usually means the local OpenCV build lacks a compatible video backend "
+            "(check cv2.getBuildInformation() for 'Video I/O') -- try a different "
+            "fourcc/extension, or use PyAV instead of cv2 for video writing."
+        )
     try:
         for frame in frames:
             writer.write(frame)

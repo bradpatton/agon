@@ -1,0 +1,11 @@
+{
+  "_comment": "UNCALIBRATED / APPROXIMATE. Hand-picked from a single screenshot of input_videos/benchmark_clip.mp4 (a center-circle wide shot with no pitch corners visible) without a real click-to-annotate tool, purely so the ViewTransformer code path has a non-degenerate quadrilateral to run against for pipeline smoke-testing. Do NOT treat position_pitch_m / speed_kmh / distance_m outputs from this calibration as accurate -- they exercise the code, not the physics. Replace with a properly annotated calibration (visible pitch corners + known dimensions) before trusting any metrics from this clip.",
+  "pixel_vertices": [
+    [620, 520],
+    [1750, 520],
+    [1900, 950],
+    [150, 950]
+  ],
+  "court_length_m": 20.0,
+  "court_width_m": 68.0
+}

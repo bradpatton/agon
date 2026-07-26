@@ -17,14 +17,37 @@ from soccer_analysis.analytics.player_ball_assigner import PlayerBallAssigner
 from soccer_analysis.analytics.speed_distance import SpeedDistanceEstimator
 from soccer_analysis.camera.camera_movement_estimator import CameraMovementEstimator
 from soccer_analysis.config import CalibrationConfig, PipelineConfig, resolve_device
-from soccer_analysis.detection.tracker import Tracker, Tracks
+from soccer_analysis.detection.base import Tracks, add_position_to_tracks, interpolate_ball_positions
 from soccer_analysis.geometry.bbox import Point
 from soccer_analysis.geometry.view_transformer import ViewTransformer
+from soccer_analysis.interfaces import Detector
 from soccer_analysis.io.video import read_video, save_video
 from soccer_analysis.team.team_assigner import TeamAssigner
 from soccer_analysis.viz.annotate import draw_annotations
 
 logger = logging.getLogger(__name__)
+
+
+def _build_detector(model_path: Path, preferred_device: str | None, confidence: float) -> Detector:
+    """Picks a Detector backend by model file extension.
+
+    ``.onnx`` -> OnnxDetector (default, torch-free, runs on CPU via
+    onnxruntime). ``.pt``/others -> UltralyticsDetector (needs the
+    ``[train]`` extra; resolves a torch cuda/mps/cpu device). See the
+    README's modernization notes for why onnxruntime is the default runtime
+    path.
+    """
+    if model_path.suffix == ".onnx":
+        from soccer_analysis.detection.onnx_tracker import OnnxDetector
+
+        logger.info("Using OnnxDetector backend (CPUExecutionProvider)")
+        return OnnxDetector(str(model_path), confidence=confidence)
+
+    from soccer_analysis.detection.tracker import UltralyticsDetector
+
+    device = resolve_device(preferred_device)
+    logger.info("Using UltralyticsDetector backend (device=%s)", device)
+    return UltralyticsDetector(str(model_path), device=device, confidence=confidence)
 
 
 @dataclass
@@ -59,8 +82,6 @@ def run_pipeline(
         output_video_path: if given, renders an annotated video there.
     """
     config = config or PipelineConfig()
-    device = resolve_device(config.device)
-    logger.info("Using inference device: %s", device)
 
     video_path = Path(video_path)
     stub_dir = Path(stub_dir) if stub_dir else None
@@ -69,11 +90,11 @@ def run_pipeline(
 
     video_frames = read_video(video_path)
 
-    tracker = Tracker(str(model_path), device=device, confidence=config.detection_confidence)
-    tracks = tracker.get_object_tracks(
+    detector = _build_detector(Path(model_path), config.device, config.detection_confidence)
+    tracks = detector.get_object_tracks(
         video_frames, read_from_stub=read_from_stub, stub_path=tracks_stub
     )
-    tracker.add_position_to_tracks(tracks)
+    add_position_to_tracks(tracks)
 
     pitch_pixel_vertices = np.array(calibration.pixel_vertices, dtype=np.float32)
     camera_movement_estimator = CameraMovementEstimator(
@@ -87,7 +108,7 @@ def run_pipeline(
     view_transformer = ViewTransformer(calibration)
     view_transformer.add_transformed_position_to_tracks(tracks)
 
-    tracks["ball"] = tracker.interpolate_ball_positions(tracks["ball"])
+    tracks["ball"] = interpolate_ball_positions(tracks["ball"])
 
     speed_distance_estimator = SpeedDistanceEstimator(
         frame_window=config.speed_frame_window, frame_rate=config.frame_rate

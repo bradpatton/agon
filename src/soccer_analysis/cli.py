@@ -41,7 +41,7 @@ def process(
     calibration_config = CalibrationConfig.from_json_file(calibration)
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    output_video_path = output_dir / f"{input_video.stem}_annotated.avi" if render_video else None
+    output_video_path = output_dir / f"{input_video.stem}_annotated.mp4" if render_video else None
 
     result = run_pipeline(
         video_path=input_video,

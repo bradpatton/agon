@@ -64,11 +64,21 @@ class Settings(BaseSettings):
 
 
 def resolve_device(preferred: str | None) -> str:
-    """Pick an inference device, auto-detecting CUDA/MPS/CPU when unset."""
+    """Pick a torch device for the UltralyticsDetector backend, auto-detecting
+    CUDA/MPS/CPU when unset.
+
+    Only relevant to the torch-backed backend (needs the ``[train]`` extra) —
+    the default OnnxDetector backend doesn't use this. Degrades to "cpu" if
+    torch isn't installed at all, rather than raising, since callers may
+    invoke this speculatively before knowing which backend will be used.
+    """
     if preferred is not None:
         return preferred
 
-    import torch
+    try:
+        import torch
+    except ImportError:
+        return "cpu"
 
     if torch.cuda.is_available():
         return "cuda"
