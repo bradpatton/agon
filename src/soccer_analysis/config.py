@@ -51,6 +51,11 @@ class PipelineConfig(BaseModel):
     """'static' = ViewTransformer (one homography from CalibrationConfig).
     'dynamic' = PitchKeypointCalibrator (per-frame center-circle detection,
     experimental classical-CV first cut -- see that class's docstring)."""
+    team_classifier: Literal["pixel", "embedding"] = "pixel"
+    """'pixel' = TeamAssigner (raw jersey-crop pixel KMeans).
+    'embedding' = EmbeddingTeamClassifier (small-CNN-embedding KMeans;
+    needs models/team_embedding.onnx -- see scripts/export_team_embedding_model.py)."""
+    team_embedding_model_path: str = "models/team_embedding.onnx"
 
 
 class Settings(BaseSettings):

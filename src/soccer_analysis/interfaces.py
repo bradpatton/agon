@@ -39,10 +39,12 @@ class Detector(Protocol):
 class TeamClassifier(Protocol):
     """Assigns each player track to one of two teams.
 
-    Current implementation: ``soccer_analysis.team.team_assigner.TeamAssigner``
-    (KMeans over raw jersey-crop pixel colors). A more robust alternative is
-    embedding-based clustering (e.g. SigLIP crop embeddings + KMeans), which
-    holds up better under similar kit colors, lighting, and motion blur.
+    Two implementations: ``soccer_analysis.team.team_assigner.TeamAssigner``
+    (KMeans over raw jersey-crop pixel colors) and
+    ``soccer_analysis.team.embedding_team_assigner.EmbeddingTeamClassifier``
+    (KMeans over small-CNN embeddings of the same crops -- holds up better
+    under similar kit colors, lighting, and motion blur; see that class's
+    docstring for what it still can't do).
     """
 
     def assign_team_color(self, frame: Frame, player_detections: dict[int, dict[str, Any]]) -> None: ...

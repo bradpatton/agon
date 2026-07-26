@@ -28,10 +28,18 @@
       "Read(//tmp/**)",
       "Read(//private/tmp/**)",
       "Bash(git check-ignore *)",
-      "Bash(cd \"/Users/bradleypatton/Documents/Claude/Projects/untitled folder\" && git diff --stat && rm -rf /tmp/bench-env /tmp/annotated_frame*.jpg output)"
+      "Bash(cd \"/Users/bradleypatton/Documents/Claude/Projects/untitled folder\" && git diff --stat && rm -rf /tmp/bench-env /tmp/annotated_frame*.jpg output)",
+      "Bash(rm -rf /tmp/export-env && uv venv /tmp/export-env --python 3.11 2>&1 | tail -3 && uv pip install --python /tmp/export-env torch==2.2.2 torchvision==0.17.2 2>&1 | tail -10)",
+      "Bash(/tmp/export-env/bin/python scripts/export_team_embedding_model.py)",
+      "Bash(cd \"/Users/bradleypatton/Documents/Claude/Projects/untitled folder\" && ls -la models/team_embedding.onnx && rm -rf /tmp/export-env)",
+      "Bash(ls -d /tmp/bench-env 2>&1)",
+      "Read(//private/tmp/bench-env/**)",
+      "Bash(ffmpeg -y -v error -ss 3 -i output/benchmark_embedding.mp4 -frames:v 1 -q:v 2 /tmp/embedding_frame.jpg)"
     ],
     "additionalDirectories": [
-      "/private/tmp/bench-env"
+      "/private/tmp/bench-env",
+      "/tmp",
+      "/private/tmp/export-env"
     ]
   }
 }

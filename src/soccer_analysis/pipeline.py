@@ -21,8 +21,9 @@ from soccer_analysis.detection.base import Tracks, add_position_to_tracks, inter
 from soccer_analysis.geometry.bbox import Point
 from soccer_analysis.geometry.pitch_keypoint_calibrator import PitchKeypointCalibrator
 from soccer_analysis.geometry.view_transformer import ViewTransformer, add_transformed_position_to_tracks
-from soccer_analysis.interfaces import Detector, PitchCalibrator
+from soccer_analysis.interfaces import Detector, PitchCalibrator, TeamClassifier
 from soccer_analysis.io.video import read_video, save_video
+from soccer_analysis.team.embedding_team_assigner import EmbeddingTeamClassifier
 from soccer_analysis.team.team_assigner import TeamAssigner
 from soccer_analysis.viz.annotate import draw_annotations
 
@@ -69,6 +70,19 @@ def _build_pitch_calibrator(
     calibrator = ViewTransformer(calibration)
     calibrator.calibrate(video_frames)
     return calibrator
+
+
+def _build_team_classifier(mode: str, embedding_model_path: str, random_state: int) -> TeamClassifier:
+    """Picks a TeamClassifier per ``PipelineConfig.team_classifier``.
+
+    'embedding' needs a model exported by scripts/export_team_embedding_model.py
+    -- see EmbeddingTeamClassifier's docstring for what it actually improves
+    on and what it still can't do (referee separation).
+    """
+    if mode == "embedding":
+        return EmbeddingTeamClassifier(embedding_model_path, random_state=random_state)
+
+    return TeamAssigner(random_state=random_state)
 
 
 @dataclass
@@ -136,7 +150,9 @@ def run_pipeline(
     )
     speed_distance_estimator.add_speed_and_distance_to_tracks(tracks)
 
-    team_assigner = TeamAssigner(random_state=config.team_kmeans_random_state)
+    team_assigner = _build_team_classifier(
+        config.team_classifier, config.team_embedding_model_path, config.team_kmeans_random_state
+    )
     team_assigner.assign_team_color(video_frames[0], tracks["players"][0])
     for frame_num, player_track in enumerate(tracks["players"]):
         for player_id, track in player_track.items():
