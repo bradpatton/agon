@@ -23,7 +23,7 @@ populate ``referees`` (see the ``OnnxDetector`` docstring).
 
 from __future__ import annotations
 
-import pickle
+import json
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
@@ -99,7 +99,21 @@ def interpolate_ball_positions(
     df_ball_positions = df_ball_positions.interpolate()
     df_ball_positions = df_ball_positions.bfill()
 
-    return [{1: {"bbox": row}} for row in df_ball_positions.to_numpy().tolist()]
+    return [{1: {"bbox": row, "class_name": "ball"}} for row in df_ball_positions.to_numpy().tolist()]
+
+
+def _tracks_to_jsonable(tracks: Tracks) -> dict:
+    return {
+        object_type: [{str(track_id): info for track_id, info in frame.items()} for frame in frames]
+        for object_type, frames in tracks.items()
+    }
+
+
+def _tracks_from_jsonable(data: dict) -> Tracks:
+    return {
+        object_type: [{int(track_id): info for track_id, info in frame.items()} for frame in frames]
+        for object_type, frames in data.items()
+    }
 
 
 def run_detection_and_tracking(
@@ -111,9 +125,15 @@ def run_detection_and_tracking(
     read_from_stub: bool = False,
     stub_path: str | Path | None = None,
 ) -> Tracks:
+    """``stub_path`` is a development-time cache of raw tracking output (pre
+    camera-compensation/calibration/speed/team-assignment), not the ML data
+    export -- see ``soccer_analysis.export`` for that. JSON, not pickle:
+    unpickling from an untrusted source is a real risk for a tool other
+    people run, and this cache holds nothing pickle could do that JSON
+    can't (plain bboxes/ints/strings at this stage of the pipeline).
+    """
     if read_from_stub and stub_path is not None and Path(stub_path).exists():
-        with open(stub_path, "rb") as f:
-            return pickle.load(f)
+        return _tracks_from_jsonable(json.loads(Path(stub_path).read_text()))
 
     detections_per_frame = detect_all_frames()
     tracks = _assemble_tracks(
@@ -122,8 +142,7 @@ def run_detection_and_tracking(
 
     if stub_path is not None:
         Path(stub_path).parent.mkdir(parents=True, exist_ok=True)
-        with open(stub_path, "wb") as f:
-            pickle.dump(tracks, f)
+        Path(stub_path).write_text(json.dumps(_tracks_to_jsonable(tracks)))
 
     return tracks
 
@@ -152,15 +171,21 @@ def _assemble_tracks(
             bbox = frame_detection[0].tolist()
             cls_id = frame_detection[3]
             track_id = frame_detection[4]
-            object_type = class_name_to_object_type.get(class_names[cls_id])
+            class_name = class_names[cls_id]
+            object_type = class_name_to_object_type.get(class_name)
             if object_type in ("players", "referees"):
-                tracks[object_type][-1][track_id] = {"bbox": bbox}
+                # class_name kept alongside the bucket (not just "players")
+                # so the export schema can still tell player from
+                # goalkeeper -- that distinction would otherwise be lost
+                # once both land in the same "players" bucket.
+                tracks[object_type][-1][track_id] = {"bbox": bbox, "class_name": class_name}
 
         for frame_detection in detection_supervision:
             bbox = frame_detection[0].tolist()
             cls_id = frame_detection[3]
-            object_type = class_name_to_object_type.get(class_names[cls_id])
+            class_name = class_names[cls_id]
+            object_type = class_name_to_object_type.get(class_name)
             if object_type == "ball":
-                tracks["ball"][-1][1] = {"bbox": bbox}
+                tracks["ball"][-1][1] = {"bbox": bbox, "class_name": class_name}
 
     return tracks

@@ -29,10 +29,12 @@ input_videos/*
 !input_videos/put_input_video_here.txt
 models/*
 !models/put_models_here.txt
+output/
 output_videos/
 outputs/
 data/
 stubs/
+docker_output/
 *.mp4
 *.avi
 *.mov

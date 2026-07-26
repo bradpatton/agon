@@ -1,8 +1,8 @@
-"""Orchestrates the full detect -> track -> analyze -> render pipeline.
+"""Orchestrates the full detect -> track -> analyze -> export/render pipeline.
 
-Replaces the original tutorial's ``main.py`` script. Produces the
-in-memory ``tracks`` structure (used by ``soccer_analysis.export`` to write
-the ML-ready JSONL/Parquet data) and, optionally, an annotated video.
+Replaces the original tutorial's ``main.py`` script. The primary output is
+the ML-ready JSONL/Parquet data (``soccer_analysis.export``); an annotated
+video is optional, not the point (see the README).
 """
 
 from __future__ import annotations
@@ -18,6 +18,8 @@ from soccer_analysis.analytics.speed_distance import SpeedDistanceEstimator
 from soccer_analysis.camera.camera_movement_estimator import CameraMovementEstimator
 from soccer_analysis.config import CalibrationConfig, PipelineConfig, resolve_device
 from soccer_analysis.detection.base import Tracks, add_position_to_tracks, interpolate_ball_positions
+from soccer_analysis.export.schema import FrameRecord, MatchSummary, build_frame_records, build_match_summary
+from soccer_analysis.export.writer import write_jsonl, write_match_summary, write_parquet, write_schema_json
 from soccer_analysis.geometry.bbox import Point
 from soccer_analysis.geometry.pitch_keypoint_calibrator import PitchKeypointCalibrator
 from soccer_analysis.geometry.view_transformer import ViewTransformer, add_transformed_position_to_tracks
@@ -125,12 +127,17 @@ def _build_team_classifier(mode: str, embedding_model_path: str, random_state: i
     return TeamAssigner(random_state=random_state)
 
 
+EXPORT_FORMATS = ("jsonl", "parquet", "summary", "schema", "video")
+
+
 @dataclass
 class PipelineResult:
     tracks: Tracks
     team_ball_control: np.ndarray
     camera_movement_per_frame: list[Point]
     frame_rate: float
+    frame_records: list[FrameRecord] | None = None
+    match_summary: MatchSummary | None = None
 
 
 def run_pipeline(
@@ -141,8 +148,12 @@ def run_pipeline(
     stub_dir: str | Path | None = None,
     read_from_stub: bool = False,
     output_video_path: str | Path | None = None,
+    export_dir: str | Path | None = None,
+    export_formats: list[str] | None = None,
+    video_id: str | None = None,
 ) -> PipelineResult:
-    """Run detection/tracking/analytics, and optionally render an annotated video.
+    """Run detection/tracking/analytics, and optionally render an annotated
+    video and/or write the ML-ready data export.
 
     Args:
         video_path: input match footage.
@@ -152,15 +163,23 @@ def run_pipeline(
         stub_dir: optional directory to cache intermediate tracking/camera-movement
             results, keyed by video filename, so re-running is fast during
             development. See the README for why this is a *cache*, not the
-            canonical data export (that's ``soccer_analysis.export``).
+            canonical data export (that's ``soccer_analysis.export``, driven
+            by ``export_dir``/``export_formats`` below).
         read_from_stub: reuse a previously written stub cache if present.
         output_video_path: if given, renders an annotated video there.
+        export_dir: if given, writes the ML-ready data export here.
+        export_formats: subset of ``EXPORT_FORMATS`` to write into
+            ``export_dir``; "video" is handled via ``output_video_path``, not
+            here (kept in this tuple since the CLI's ``--format`` flag covers
+            both with one option). Defaults to jsonl+parquet+summary.
+        video_id: identifier stamped into export records; defaults to the
+            input video's filename stem.
     """
     config = config or PipelineConfig()
 
     video_path = Path(video_path)
     stub_dir = Path(stub_dir) if stub_dir else None
-    tracks_stub = stub_dir / f"{video_path.stem}_tracks.pkl" if stub_dir else None
+    tracks_stub = stub_dir / f"{video_path.stem}_tracks.json" if stub_dir else None
     camera_stub = stub_dir / f"{video_path.stem}_camera_movement.json" if stub_dir else None
 
     video_frames = read_video(video_path)
@@ -172,6 +191,13 @@ def run_pipeline(
     tracks = detector.get_object_tracks(
         video_frames, read_from_stub=read_from_stub, stub_path=tracks_stub
     )
+    # Ball interpolation must happen before position/camera/pitch steps below,
+    # not after (the original tutorial did it after -- a latent bug: an
+    # interpolated-only ball frame would never get "position"/
+    # "position_transformed" computed, since those steps had already run over
+    # the pre-interpolation, mostly-empty ball tracks by the time interpolation
+    # replaced them).
+    tracks["ball"] = interpolate_ball_positions(tracks["ball"])
     add_position_to_tracks(tracks)
 
     pitch_pixel_vertices = np.array(calibration.pixel_vertices, dtype=np.float32)
@@ -185,8 +211,6 @@ def run_pipeline(
 
     pitch_calibrator = _build_pitch_calibrator(calibration, config.calibration_mode, video_frames)
     add_transformed_position_to_tracks(tracks, pitch_calibrator)
-
-    tracks["ball"] = interpolate_ball_positions(tracks["ball"])
 
     speed_distance_estimator = SpeedDistanceEstimator(
         frame_window=config.speed_frame_window, frame_rate=config.frame_rate
@@ -231,9 +255,39 @@ def run_pipeline(
         speed_distance_estimator.draw_speed_and_distance(output_frames, tracks)
         save_video(output_frames, output_video_path, fps=config.frame_rate)
 
+    frame_records = None
+    match_summary = None
+    if export_dir is not None:
+        formats = export_formats or ["jsonl", "parquet", "summary"]
+        video_id = video_id or Path(video_path).stem
+        export_dir = Path(export_dir)
+        export_dir.mkdir(parents=True, exist_ok=True)
+
+        needs_records = {"jsonl", "parquet"} & set(formats)
+        if needs_records:
+            frame_records = build_frame_records(
+                tracks, team_ball_control_array.tolist(), camera_movement_per_frame,
+                video_id, config.frame_rate,
+            )
+            if "jsonl" in formats:
+                write_jsonl(frame_records, export_dir / f"{video_id}_frames.jsonl")
+            if "parquet" in formats:
+                write_parquet(frame_records, export_dir / f"{video_id}_frames.parquet")
+
+        if "summary" in formats:
+            match_summary = build_match_summary(
+                tracks, team_ball_control_array.tolist(), video_id, config.frame_rate
+            )
+            write_match_summary(match_summary, export_dir / f"{video_id}_summary.json")
+
+        if "schema" in formats:
+            write_schema_json(export_dir / "schema.json")
+
     return PipelineResult(
         tracks=tracks,
         team_ball_control=team_ball_control_array,
         camera_movement_per_frame=camera_movement_per_frame,
         frame_rate=config.frame_rate,
+        frame_records=frame_records,
+        match_summary=match_summary,
     )
