@@ -2518,6 +2518,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+assets = [
+    { name = "gdown" },
+]
 dev = [
     { name = "mypy" },
     { name = "pre-commit" },
@@ -2533,6 +2536,7 @@ train = [
 [package.metadata]
 requires-dist = [
     { name = "boxmot", marker = "extra == 'train'", specifier = ">=19.0" },
+    { name = "gdown", marker = "extra == 'assets'", specifier = ">=5.1" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "onnxruntime", specifier = ">=1.18" },
@@ -2553,7 +2557,7 @@ requires-dist = [
     { name = "typer", specifier = ">=0.12" },
     { name = "ultralytics", marker = "extra == 'train'", specifier = ">=8.3" },
 ]
-provides-extras = ["train", "dev"]
+provides-extras = ["train", "assets", "dev"]
 
 [[package]]
 name = "soupsieve"

@@ -1,30 +1,255 @@
-# Football Analysis Project
+# Soccer Video Analysis
 
-## Introduction
-The goal of this project is to detect and track players, referees, and footballs in a video using YOLO, one of the best AI object detection models available. We will also train the model to improve its performance. Additionally, we will assign players to teams based on the colors of their t-shirts using Kmeans for pixel segmentation and clustering. With this information, we can measure a team's ball acquisition percentage in a match. We will also use optical flow to measure camera movement between frames, enabling us to accurately measure a player's movement. Furthermore, we will implement perspective transformation to represent the scene's depth and perspective, allowing us to measure a player's movement in meters rather than pixels. Finally, we will calculate a player's speed and the distance covered. This project covers various concepts and addresses real-world problems, making it suitable for both beginners and experienced machine learning engineers.
+[![CI](https://github.com/OWNER/REPO/actions/workflows/ci.yml/badge.svg)](https://github.com/OWNER/REPO/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](pyproject.toml)
 
-![Screenshot](output_videos/screenshot.png)
+Turns soccer match footage into structured, ML-ready tracking data: per-frame
+player/referee/ball positions (pixel *and* pitch-space meters), team
+assignment, ball possession, and speed/distance — exported as JSONL and
+Parquet, not just an annotated video. An annotated video is still available
+as an optional output, but the data is the point.
 
-## Modules Used
-The following modules are used in this project:
-- YOLO: AI object detection model
-- Kmeans: Pixel segmentation and clustering to detect t-shirt color
-- Optical Flow: Measure camera movement
-- Perspective Transformation: Represent scene depth and perspective
-- Speed and distance calculation per player
+> Replace `OWNER/REPO` in the badge above once this is pushed to GitHub.
 
-## Trained Models
-- [Trained Yolo v5](https://drive.google.com/file/d/1DC2kCygbBWUKheQ_9cFziCsYVSRw6axK/view?usp=sharing)
+## What it does
 
-## Sample video
--  [Sample input video](https://drive.google.com/file/d/1t6agoqggZKx6thamUuPAIdN_1zR9v9S_/view?usp=sharing)
+```mermaid
+flowchart LR
+    V[Match video] --> D[Detector<br/>ONNX default / Ultralytics]
+    D --> T[Tracker<br/>ByteTrack default / BoT-SORT]
+    T --> CM[Camera movement<br/>compensation]
+    CM --> PC[Pitch calibration<br/>static default / dynamic]
+    PC --> SD[Speed / distance]
+    SD --> TC[Team classification<br/>pixel default / embedding]
+    TC --> BP[Ball possession]
+    BP --> EX[("ML export<br/>JSONL + Parquet + summary")]
+    BP --> VID[Annotated video<br/>optional]
+```
 
-## Requirements
-To run this project, you need to have the following requirements installed:
-- Python 3.x
-- ultralytics
-- supervision
-- OpenCV
-- NumPy
-- Matplotlib
-- Pandas
+Every stage marked "default / alternative" is swappable via config, behind a
+`typing.Protocol` interface (see `src/soccer_analysis/interfaces.py`) — no
+pipeline code changes needed to pick a different backend. See
+[Modernization & backend options](#modernization--backend-options) below for
+what each alternative actually buys you and its real limitations.
+
+## Install
+
+```bash
+git clone <this-repo>
+cd soccer-video-analysis
+uv sync            # or: pip install -e .
+```
+
+Extras (none required for the default pipeline):
+
+| Extra | Adds | Needed for |
+|---|---|---|
+| `[train]` | `torch`, `ultralytics`, `boxmot` | `UltralyticsDetector`, `BoTSORTTracker`, fine-tuning a checkpoint |
+| `[assets]` | `gdown` | `scripts/download_assets.py` |
+| `[dev]` | `pytest`, `ruff`, `mypy`, `pre-commit` | running tests/lint locally |
+
+`torch` is deliberately not a core dependency — the default detector
+(`OnnxDetector`, via `onnxruntime`) doesn't need it, and current `torch`
+releases don't ship wheels for every platform (confirmed on Intel macOS
+while building this). See [Modernization](#modernization--backend-options).
+
+## Quickstart
+
+```bash
+# Fetch the tutorial's demo checkpoint + sample clip (or supply your own).
+python scripts/download_assets.py
+
+# The default backend runs on ONNX; export the downloaded .pt checkpoint once
+# (needs the [train] extra just for this one-time conversion):
+python -c "from ultralytics import YOLO; YOLO('models/best.pt').export(format='onnx', imgsz=640, dynamic=False)"
+
+soccer-analysis \
+  --input input_videos/08fd33_4.mp4 \
+  --model models/best.onnx \
+  --calibration configs/calibration/example_pitch.json \
+  --format jsonl --format parquet --format summary
+```
+
+Outputs land in `output/` by default (`--output-dir` to change it):
+`<video>_frames.jsonl`, `<video>_frames.parquet`, `<video>_summary.json`. Add
+`--format video` for an annotated `.mp4` alongside the data, `--format
+schema` to also dump the JSON Schema. `--help` lists everything, including
+`--cache` to reuse tracking results between runs while iterating.
+
+`configs/calibration/example_pitch.json` is calibrated to the tutorial's one
+sample camera angle — see [Pitch calibration](#pitch-calibration) before
+pointing it at different footage.
+
+## Output data schema
+
+One record per frame, `schema_version`-stamped for forward compatibility
+(`src/soccer_analysis/export/schema.py` is the source of truth; a JSON
+Schema is published via `--format schema`):
+
+```json
+{
+  "schema_version": "1.0.0",
+  "video_id": "08fd33_4",
+  "frame_id": 142,
+  "timestamp_s": 5.92,
+  "camera_movement_px": [3.1, -0.4],
+  "team_ball_control": 1,
+  "objects": [
+    {
+      "track_id": 7,
+      "class": "player",
+      "team": 1,
+      "bbox_px": [812.3, 401.1, 861.7, 512.4],
+      "position_px": [837.0, 512.4],
+      "position_pitch_m": [34.2, 12.8],
+      "speed_kmh": 24.1,
+      "distance_m": 812.4,
+      "has_ball": true
+    }
+  ]
+}
+```
+
+`class` is one of `player` / `goalkeeper` / `referee` / `ball`.
+`position_pitch_m` is `null` when the point falls outside the calibrated
+pitch area, or when the active `PitchCalibrator` had no usable reference in
+that frame (see [Pitch calibration](#pitch-calibration)) — this is a real
+"we don't know" signal, not a bug, and downstream ML code should treat it
+that way rather than imputing a value. `<video>_summary.json` has
+match-level aggregates (possession %, per-player total distance / avg / max
+speed) built from the same data.
+
+## Modernization & backend options
+
+This started from a well-known YOLO+ByteTrack tutorial. Every algorithmic
+choice was re-evaluated against current practice; some were upgraded, one
+turned out to be a real accuracy bug rather than just dated. Priority order
+below reflects how much each one matters, not the order they were built in.
+
+### Pitch calibration
+
+The highest-priority item, because it isn't just a modernization nice-to-have
+— **a single static homography for an entire match is a real accuracy bug**.
+Broadcast cameras pan/zoom continuously; the optical-flow camera-movement
+compensation only corrects translation, not zoom/rotation, so pitch-space
+positions silently drift wrong for most of the footage under `calibration_mode:
+static` (the default, `ViewTransformer`).
+
+`calibration_mode: dynamic` (`PitchKeypointCalibrator`) is a classical-CV
+first cut at fixing this per-frame: it detects the pitch's center circle each
+frame (its real-world 9.15m radius gives scale + position) and the halfway
+line's angle (gives rotation). It is **not** a trained keypoint model and
+**not** a full projective homography — read
+`src/soccer_analysis/geometry/pitch_keypoint_calibrator.py`'s module
+docstring before trusting its output for anything beyond relative
+speed/distance. It returns `null` positions for frames where it can't find
+the circle (most of a real match), same as the static calibrator does
+outside its polygon.
+
+### Team classification
+
+`team_classifier: pixel` (default, `TeamAssigner`) clusters raw jersey-crop
+pixel colors — fragile under similar kit colors, lighting, and motion blur.
+`team_classifier: embedding` (`EmbeddingTeamClassifier`) clusters small-CNN
+embeddings instead (a MobileNetV3-Small backbone exported to ONNX via
+`scripts/export_team_embedding_model.py`), which holds up meaningfully
+better. Neither can separate "team" from "referee" without a soccer-specific
+detector checkpoint with its own referee class.
+
+### Tracking
+
+`tracker_backend: bytetrack` (default, via `supervision`) is solid.
+`tracker_backend: botsort` (`BoTSORTTracker`, via `boxmot`) adds a better
+motion model and optional camera-motion compensation, at the cost of needing
+the `[train]` extra — `boxmot` imports `torch` unconditionally, even in
+motion-only mode (confirmed, not assumed).
+
+### Inference backend
+
+`OnnxDetector` (default, `onnxruntime`) vs. `UltralyticsDetector`
+(`torch`/`ultralytics`, needs `[train]`). `torch` is unavoidable for
+training/fine-tuning a checkpoint, but it's the wrong default dependency for
+inference: it's heavy, and current releases don't have wheels for every
+platform. `onnxruntime` is what Ultralytics itself recommends for
+deployment. Export any checkpoint with `model.export(format="onnx",
+imgsz=640, dynamic=False)`.
+
+### Not yet done
+
+- **Streaming/windowed frame processing.** `read_video` loads the whole clip
+  into memory. Fine for short clips, won't scale to a full 90-minute match.
+- **Action/event recognition** (pass, shot, tackle). The export schema's
+  `class` field and per-object structure are designed to extend to this
+  later without a breaking change, but nothing is implemented yet. SoccerNet
+  Action Spotting is the reference benchmark to build toward.
+- **Docker CUDA variant.** `Dockerfile` is CPU-only today (see
+  [Development](#development)).
+
+## Configuration
+
+`configs/default.yaml` sets `PipelineConfig` defaults (detection confidence,
+speed-window size, `calibration_mode`, `team_classifier`, `tracker_backend`,
+inference device, ...) — override with `--config your.yaml` or
+`SOCCER_ANALYSIS_PIPELINE__<FIELD>` env vars. `configs/calibration/*.json` is
+per-video/per-camera-angle: four pixel corner points + real pitch dimensions
+(see `configs/calibration/example_pitch.json`'s comments for how to build
+one for new footage).
+
+## Development
+
+```bash
+uv sync --extra dev
+pytest                              # 50+ tests, pure logic + synthetic inputs, no video/model needed
+ruff check src/ tests/ && ruff format --check src/ tests/
+mypy src/soccer_analysis
+pre-commit install                  # run the above automatically on commit
+```
+
+The `[train]`-extra-dependent backends (`UltralyticsDetector`,
+`BoTSORTTracker`) can't be exercised on every platform (see above) — the
+`Dockerfile` exists specifically to validate them in a consistent Linux
+environment:
+
+```bash
+docker build -t soccer-analysis:train .
+docker run --rm -v "$(pwd)/input_videos:/data/input_videos:ro" \
+  -v "$(pwd)/models:/data/models:ro" -v "$(pwd)/configs:/data/configs:ro" \
+  -v "$(pwd)/output:/data/output" -w /data soccer-analysis:train \
+  --input input_videos/your_clip.mp4 --model models/best.pt \
+  --calibration configs/calibration/your_calibration.json
+```
+
+## Repo layout
+
+```
+src/soccer_analysis/
+  cli.py, pipeline.py       # entry point + orchestration
+  detection/                # Detector backends + tracking assembly
+  camera/                   # optical-flow camera-movement compensation
+  geometry/                 # bbox math, pitch calibrators
+  team/                     # team classifiers
+  analytics/                # ball possession, speed/distance
+  export/                   # versioned schema + JSONL/Parquet/summary writers
+  viz/                      # annotated-video drawing
+configs/                    # pipeline defaults + per-video pitch calibration
+scripts/                    # asset download, team-embedding model export
+notebooks/                  # training/exploration notebooks (not part of the pipeline)
+tests/
+```
+
+## License & credits
+
+MIT — see [LICENSE](LICENSE). This project restructures, hardens, and
+extends a well-known public YOLO + ByteTrack + KMeans soccer-analysis
+tutorial (detection/tracking/team-color/camera-compensation/homography/
+speed-distance pipeline). If you recognize the original author or source
+repo, please open a PR to add proper attribution here — it wasn't included
+in the material this project started from.
+
+If you use `scripts/download_assets.py`, note it fetches a third-party
+checkpoint and sample clip from the original tutorial's hosting; verify
+their license/provenance is appropriate for your use before relying on them
+beyond experimentation.
+
+Contributions welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
