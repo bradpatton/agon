@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import dataclass
 from pathlib import Path
 
 import cv2
@@ -21,6 +22,18 @@ from soccer_analysis.geometry.bbox import Point, measure_distance, measure_xy_di
 from soccer_analysis.io.video import Frame
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class CameraFlowState:
+    """Continuation state for get_camera_movement_chunk: the last frame
+    (grayscale) and feature points from the previous chunk, so the optical
+    flow chain carries across chunk boundaries in streaming/windowed
+    processing instead of resetting (which would show as a spurious
+    zero-movement blip plus a wasted feature re-detection every chunk)."""
+
+    gray: npt.NDArray[np.uint8]
+    features: npt.NDArray
 
 
 class CameraMovementEstimator:
@@ -84,15 +97,36 @@ class CameraMovementEstimator:
             data = json.loads(Path(stub_path).read_text())
             return [tuple(pair) for pair in data]
 
-        camera_movement: list[Point] = [(0.0, 0.0)] * len(frames)
+        camera_movement, _ = self.get_camera_movement_chunk(frames, state=None)
 
-        old_gray = cv2.cvtColor(frames[0], cv2.COLOR_BGR2GRAY)
-        # mypy can't resolve cv2's overloads through a **dict[str, object]
-        # unpack below; the dict's actual values match the expected kwarg
-        # types at runtime.
-        old_features = cv2.goodFeaturesToTrack(old_gray, **self.features)  # type: ignore[call-overload]
+        if stub_path is not None:
+            Path(stub_path).parent.mkdir(parents=True, exist_ok=True)
+            Path(stub_path).write_text(json.dumps(camera_movement))
 
-        for frame_num in tqdm(range(1, len(frames)), desc="Estimating camera movement"):
+        return camera_movement
+
+    def get_camera_movement_chunk(
+        self, frames: list[Frame], state: CameraFlowState | None
+    ) -> tuple[list[Point], CameraFlowState]:
+        """Chunked variant: continues from ``state`` (a previous chunk's
+        final frame/features) instead of always starting fresh from
+        ``frames[0]``. Pass ``state=None`` for the very first chunk of a
+        video (equivalent to ``get_camera_movement``'s behavior). No
+        stub-cache support here -- streaming mode caches at the chunk level
+        instead (see ``pipeline.run_pipeline_streaming``).
+        """
+        if state is None:
+            old_gray = cv2.cvtColor(frames[0], cv2.COLOR_BGR2GRAY)
+            old_features = cv2.goodFeaturesToTrack(old_gray, **self.features)  # type: ignore[call-overload]
+            camera_movement: list[Point] = [(0.0, 0.0)]
+            start_idx = 1
+        else:
+            old_gray = state.gray
+            old_features = state.features
+            camera_movement = []
+            start_idx = 0
+
+        for frame_num in tqdm(range(start_idx, len(frames)), desc="Estimating camera movement"):
             frame_gray = cv2.cvtColor(frames[frame_num], cv2.COLOR_BGR2GRAY)
             new_features, _, _ = cv2.calcOpticalFlowPyrLK(
                 old_gray, frame_gray, old_features, None, **self.lk_params
@@ -111,49 +145,51 @@ class CameraMovementEstimator:
                     camera_movement_x, camera_movement_y = measure_xy_distance(old_point, new_point)
 
             if max_distance > self.minimum_distance:
-                camera_movement[frame_num] = (camera_movement_x, camera_movement_y)
+                camera_movement.append((camera_movement_x, camera_movement_y))
                 old_features = cv2.goodFeaturesToTrack(frame_gray, **self.features)  # type: ignore[call-overload]
+            else:
+                camera_movement.append((0.0, 0.0))
 
             old_gray = frame_gray.copy()
 
-        if stub_path is not None:
-            Path(stub_path).parent.mkdir(parents=True, exist_ok=True)
-            Path(stub_path).write_text(json.dumps(camera_movement))
-
-        return camera_movement
+        return camera_movement, CameraFlowState(
+            gray=old_gray,  # type: ignore[arg-type]  # cv2 stubs: dtype imprecise
+            features=old_features,
+        )
 
     def draw_camera_movement(
         self, frames: list[Frame], camera_movement_per_frame: list[Point]
     ) -> list[Frame]:
-        output_frames = []
+        return [
+            self.draw_camera_movement_on_frame(frame, movement)
+            for frame, movement in zip(frames, camera_movement_per_frame, strict=True)
+        ]
 
-        for frame_num, frame in enumerate(frames):
-            frame = frame.copy()
+    def draw_camera_movement_on_frame(self, frame: Frame, movement: Point) -> Frame:
+        frame = frame.copy()
 
-            overlay = frame.copy()
-            cv2.rectangle(overlay, (0, 0), (500, 100), (255, 255, 255), -1)
-            cv2.addWeighted(overlay, 0.6, frame, 0.4, 0, frame)
+        overlay = frame.copy()
+        cv2.rectangle(overlay, (0, 0), (500, 100), (255, 255, 255), -1)
+        cv2.addWeighted(overlay, 0.6, frame, 0.4, 0, frame)
 
-            x_movement, y_movement = camera_movement_per_frame[frame_num]
-            cv2.putText(
-                frame,
-                f"Camera Movement X: {x_movement:.2f}",
-                (10, 30),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                1,
-                (0, 0, 0),
-                3,
-            )
-            cv2.putText(
-                frame,
-                f"Camera Movement Y: {y_movement:.2f}",
-                (10, 60),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                1,
-                (0, 0, 0),
-                3,
-            )
+        x_movement, y_movement = movement
+        cv2.putText(
+            frame,
+            f"Camera Movement X: {x_movement:.2f}",
+            (10, 30),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            1,
+            (0, 0, 0),
+            3,
+        )
+        cv2.putText(
+            frame,
+            f"Camera Movement Y: {y_movement:.2f}",
+            (10, 60),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            1,
+            (0, 0, 0),
+            3,
+        )
 
-            output_frames.append(frame)
-
-        return output_frames
+        return frame

@@ -11,6 +11,7 @@ optional field is not a breaking change and doesn't need a bump).
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
@@ -65,6 +66,15 @@ class ObjectRecord(BaseModel):
         default=None, description="Cumulative distance covered so far."
     )
     has_ball: bool = False
+    jersey_number: int | None = Field(
+        default=None,
+        description="0-99, or null for ball/referee/unassigned/illegible. Always null "
+        "until a jersey-number recognizer is wired into the pipeline (project plan "
+        "Phase 7, item 3) -- the export field exists now so the schema doesn't need a "
+        "breaking change once one is. See scripts/convert_soccernet_gsr_to_jersey_crops.py "
+        "and scripts/train_jersey_classifier.py for the training side of that model, "
+        "already built and validated end-to-end.",
+    )
 
     model_config = {"populate_by_name": True}
 
@@ -77,6 +87,20 @@ class FrameRecord(BaseModel):
     camera_movement_px: tuple[float, float]
     team_ball_control: int = Field(description="1 or 2; 0 if no team has had the ball yet.")
     objects: list[ObjectRecord]
+    frame_classification: str | None = Field(
+        default=None,
+        description="'live_play'/'replay'/'graphic' (see "
+        "soccer_analysis.broadcast.frame_filter), or null when "
+        "frame_filter_mode='off' (the default).",
+    )
+    game_clock_s: float | None = Field(
+        default=None,
+        description="Elapsed game-time seconds read from the broadcast's "
+        "on-screen match clock (see soccer_analysis.broadcast.clock_reader). "
+        "Null unless a clock_calibration was configured and the clock was "
+        "readable in this frame -- distinct from timestamp_s, which is the "
+        "video file's own time axis.",
+    )
 
 
 class PlayerSummary(BaseModel):
@@ -103,14 +127,38 @@ def build_frame_records(
     camera_movement_per_frame: list[tuple[float, float]],
     video_id: str,
     frame_rate: float,
+    frame_offset: int = 0,
+    frame_ids: list[int] | None = None,
+    frame_classifications: list[str] | None = None,
+    game_clock_s_per_frame: list[float | None] | None = None,
 ) -> list[FrameRecord]:
+    """``frame_offset``: global (match-relative) index of ``tracks``' first
+    frame. Only matters for chunked/streaming processing, where ``tracks``
+    covers one chunk, not the whole clip -- 0 (the default) is correct for
+    a single whole-clip call.
+
+    ``frame_ids``: explicit, parallel-to-``tracks["players"]`` source-video
+    frame index per record, overriding the ``frame_offset + local_idx``
+    computation. Needed when ``soccer_analysis.broadcast``'s frame filter
+    has dropped some frames from this call's ``tracks`` (frame_filter_mode=
+    'strip'), so the surviving frames are no longer contiguously numbered
+    and a single offset can't reconstruct their true indices. None (the
+    default) keeps the contiguous frame_offset + local_idx behavior.
+
+    ``frame_classifications``/``game_clock_s_per_frame``: parallel to
+    ``tracks["players"]`` (one entry per frame in this call), from
+    ``soccer_analysis.broadcast``. Both default to None (not just an empty
+    list) when frame_filter_mode='off', leaving every record's
+    frame_classification/game_clock_s null.
+    """
     num_frames = len(tracks["players"])
     records = []
 
-    for frame_idx in range(num_frames):
+    for local_idx in range(num_frames):
+        frame_idx = frame_ids[local_idx] if frame_ids is not None else frame_offset + local_idx
         objects: list[ObjectRecord] = []
         for object_type in ("players", "referees", "ball"):
-            for track_id, info in tracks[object_type][frame_idx].items():
+            for track_id, info in tracks[object_type][local_idx].items():
                 position_transformed = info.get("position_transformed")
                 objects.append(
                     ObjectRecord(
@@ -127,6 +175,7 @@ def build_frame_records(
                         speed_kmh=info.get("speed"),
                         distance_m=info.get("distance"),
                         has_ball=bool(info.get("has_ball", False)),
+                        jersey_number=info.get("jersey_number"),
                     )
                 )
 
@@ -135,13 +184,88 @@ def build_frame_records(
                 video_id=video_id,
                 frame_id=frame_idx,
                 timestamp_s=frame_idx / frame_rate,
-                camera_movement_px=camera_movement_per_frame[frame_idx],
-                team_ball_control=int(team_ball_control[frame_idx]),
+                camera_movement_px=camera_movement_per_frame[local_idx],
+                team_ball_control=int(team_ball_control[local_idx]),
                 objects=objects,
+                frame_classification=(
+                    frame_classifications[local_idx] if frame_classifications is not None else None
+                ),
+                game_clock_s=(
+                    game_clock_s_per_frame[local_idx]
+                    if game_clock_s_per_frame is not None
+                    else None
+                ),
             )
         )
 
     return records
+
+
+@dataclass
+class MatchStats:
+    """Running accumulator for build_match_summary's inputs, so streaming
+    processing can fold in one chunk at a time (accumulate_match_stats)
+    instead of needing the whole match's tracks in memory to compute a
+    summary (finalize_match_summary)."""
+
+    team_1_frames: int = 0
+    team_2_frames: int = 0
+    player_stats: dict[int, dict[str, Any]] = field(default_factory=dict)
+
+
+def accumulate_match_stats(
+    stats: MatchStats,
+    tracks: dict[str, list[dict[int, dict[str, Any]]]],
+    team_ball_control: list[int],
+) -> None:
+    """Mutates ``stats`` in place, folding in one chunk's worth of tracks."""
+    for c in team_ball_control:
+        if c == 1:
+            stats.team_1_frames += 1
+        elif c == 2:
+            stats.team_2_frames += 1
+
+    for frame_track in tracks["players"]:
+        for track_id, info in frame_track.items():
+            player = stats.player_stats.setdefault(
+                int(track_id), {"team": None, "distances": [], "speeds": []}
+            )
+            if info.get("team") is not None:
+                player["team"] = info["team"]
+            if info.get("distance") is not None:
+                player["distances"].append(info["distance"])
+            if info.get("speed") is not None:
+                player["speeds"].append(info["speed"])
+
+
+def finalize_match_summary(
+    stats: MatchStats, video_id: str, frame_count: int, frame_rate: float
+) -> MatchSummary:
+    denom = stats.team_1_frames + stats.team_2_frames
+    team_1_pct = (stats.team_1_frames / denom * 100) if denom else 0.0
+    team_2_pct = (stats.team_2_frames / denom * 100) if denom else 0.0
+
+    players = [
+        PlayerSummary(
+            track_id=track_id,
+            team=player["team"],
+            total_distance_m=max(player["distances"]) if player["distances"] else 0.0,
+            avg_speed_kmh=(
+                sum(player["speeds"]) / len(player["speeds"]) if player["speeds"] else 0.0
+            ),
+            max_speed_kmh=max(player["speeds"]) if player["speeds"] else 0.0,
+        )
+        for track_id, player in sorted(stats.player_stats.items())
+    ]
+
+    return MatchSummary(
+        video_id=video_id,
+        frame_count=frame_count,
+        frame_rate=frame_rate,
+        team_1_possession_pct=team_1_pct,
+        team_2_possession_pct=team_2_pct,
+        players=players,
+    )
 
 
 def build_match_summary(
@@ -150,42 +274,8 @@ def build_match_summary(
     video_id: str,
     frame_rate: float,
 ) -> MatchSummary:
-    control = list(team_ball_control)
-    team_1_frames = sum(1 for c in control if c == 1)
-    team_2_frames = sum(1 for c in control if c == 2)
-    denom = team_1_frames + team_2_frames
-    team_1_pct = (team_1_frames / denom * 100) if denom else 0.0
-    team_2_pct = (team_2_frames / denom * 100) if denom else 0.0
-
-    player_stats: dict[int, dict[str, Any]] = {}
-    for frame_track in tracks["players"]:
-        for track_id, info in frame_track.items():
-            stats = player_stats.setdefault(
-                int(track_id), {"team": None, "distances": [], "speeds": []}
-            )
-            if info.get("team") is not None:
-                stats["team"] = info["team"]
-            if info.get("distance") is not None:
-                stats["distances"].append(info["distance"])
-            if info.get("speed") is not None:
-                stats["speeds"].append(info["speed"])
-
-    players = [
-        PlayerSummary(
-            track_id=track_id,
-            team=stats["team"],
-            total_distance_m=max(stats["distances"]) if stats["distances"] else 0.0,
-            avg_speed_kmh=(sum(stats["speeds"]) / len(stats["speeds"])) if stats["speeds"] else 0.0,
-            max_speed_kmh=max(stats["speeds"]) if stats["speeds"] else 0.0,
-        )
-        for track_id, stats in sorted(player_stats.items())
-    ]
-
-    return MatchSummary(
-        video_id=video_id,
-        frame_count=len(control),
-        frame_rate=frame_rate,
-        team_1_possession_pct=team_1_pct,
-        team_2_possession_pct=team_2_pct,
-        players=players,
-    )
+    """Whole-clip convenience wrapper around accumulate_match_stats +
+    finalize_match_summary, for the non-streaming pipeline."""
+    stats = MatchStats()
+    accumulate_match_stats(stats, tracks, team_ball_control)
+    return finalize_match_summary(stats, video_id, len(team_ball_control), frame_rate)

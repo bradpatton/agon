@@ -18,9 +18,17 @@ class SpeedDistanceEstimator:
     def __init__(self, frame_window: int = 5, frame_rate: float = 24.0):
         self.frame_window = frame_window
         self.frame_rate = frame_rate
+        # Persistent (not a local reset every call) so cumulative distance
+        # keeps accumulating correctly across repeated calls -- needed for
+        # streaming/chunked processing, where add_speed_and_distance_to_tracks
+        # is called once per chunk against the same estimator instance
+        # rather than once for a whole in-memory clip. A fresh
+        # SpeedDistanceEstimator() still starts every track at 0, matching
+        # the original single-call behavior.
+        self.total_distance: dict[str, dict[int, float]] = {}
 
     def add_speed_and_distance_to_tracks(self, tracks: dict) -> None:
-        total_distance: dict[str, dict[int, float]] = {}
+        total_distance = self.total_distance
 
         for object_type, object_tracks in tracks.items():
             if object_type in _EXCLUDED_OBJECT_TYPES:
@@ -69,34 +77,43 @@ class SpeedDistanceEstimator:
 
     def draw_speed_and_distance(self, frames: list[Frame], tracks: dict) -> None:
         for frame_num, frame in enumerate(frames):
-            for object_type, object_tracks in tracks.items():
-                if object_type in _EXCLUDED_OBJECT_TYPES:
+            frame_tracks = {
+                object_type: object_tracks[frame_num]
+                for object_type, object_tracks in tracks.items()
+            }
+            self.draw_speed_and_distance_on_frame(frame, frame_tracks)
+
+    def draw_speed_and_distance_on_frame(self, frame: Frame, frame_tracks: dict) -> None:
+        """Mutates ``frame`` in place. ``frame_tracks`` maps object_type ->
+        {track_id: track_info} for this one frame (not the whole clip)."""
+        for object_type, object_tracks in frame_tracks.items():
+            if object_type in _EXCLUDED_OBJECT_TYPES:
+                continue
+
+            for track_info in object_tracks.values():
+                speed = track_info.get("speed")
+                distance = track_info.get("distance")
+                if speed is None or distance is None:
                     continue
 
-                for track_info in object_tracks[frame_num].values():
-                    speed = track_info.get("speed")
-                    distance = track_info.get("distance")
-                    if speed is None or distance is None:
-                        continue
+                x, y = get_foot_position(track_info["bbox"])
+                position = (int(x), int(y) + 40)
 
-                    x, y = get_foot_position(track_info["bbox"])
-                    position = (int(x), int(y) + 40)
-
-                    cv2.putText(
-                        frame,
-                        f"{speed:.2f} km/h",
-                        position,
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.5,
-                        (0, 0, 0),
-                        2,
-                    )
-                    cv2.putText(
-                        frame,
-                        f"{distance:.2f} m",
-                        (position[0], position[1] + 20),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.5,
-                        (0, 0, 0),
-                        2,
-                    )
+                cv2.putText(
+                    frame,
+                    f"{speed:.2f} km/h",
+                    position,
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.5,
+                    (0, 0, 0),
+                    2,
+                )
+                cv2.putText(
+                    frame,
+                    f"{distance:.2f} m",
+                    (position[0], position[1] + 20),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.5,
+                    (0, 0, 0),
+                    2,
+                )

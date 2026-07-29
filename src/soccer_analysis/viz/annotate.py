@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
 import cv2
@@ -77,11 +78,12 @@ def draw_triangle(frame: Frame, bbox: BBox, color: tuple[int, int, int]) -> Fram
 
 
 def draw_team_ball_control(
-    frame: Frame, frame_num: int, team_ball_control: npt.NDArray[np.int_]
+    frame: Frame, control_so_far: Sequence[int] | npt.NDArray[np.int_]
 ) -> Frame:
     """Overlays running ball-possession percentage per team.
 
-    ``team_ball_control`` entries are 1, 2, or 0 (no team had the ball yet).
+    ``control_so_far`` is every ``team_ball_control`` entry up to and
+    including the current frame (1, 2, or 0 -- no team had the ball yet).
     Frames with no assignment are excluded from the percentage rather than
     causing a divide-by-zero when nobody has had the ball yet.
     """
@@ -89,9 +91,8 @@ def draw_team_ball_control(
     cv2.rectangle(overlay, (1350, 850), (1900, 970), (255, 255, 255), -1)
     cv2.addWeighted(overlay, 0.4, frame, 0.6, 0, frame)
 
-    control_so_far = team_ball_control[: frame_num + 1]
-    team_1_frames = int((control_so_far == 1).sum())
-    team_2_frames = int((control_so_far == 2).sum())
+    team_1_frames = sum(1 for c in control_so_far if c == 1)
+    team_2_frames = sum(1 for c in control_so_far if c == 2)
     total = team_1_frames + team_2_frames
 
     team_1_pct = (team_1_frames / total) if total else 0.0
@@ -119,35 +120,43 @@ def draw_team_ball_control(
     return frame
 
 
+def draw_annotations_on_frame(
+    frame: Frame,
+    player_dict: dict[int, dict[str, Any]],
+    referee_dict: dict[int, dict[str, Any]],
+    ball_dict: dict[int, dict[str, Any]],
+    control_so_far: Sequence[int] | npt.NDArray[np.int_],
+) -> Frame:
+    frame = frame.copy()
+
+    for track_id, player in player_dict.items():
+        color = player.get("team_color", (0, 0, 255))
+        frame = draw_ellipse(frame, player["bbox"], color, track_id)
+        if player.get("has_ball", False):
+            frame = draw_triangle(frame, player["bbox"], (0, 0, 255))
+
+    for referee in referee_dict.values():
+        frame = draw_ellipse(frame, referee["bbox"], (0, 255, 255))
+
+    for ball in ball_dict.values():
+        if _is_valid_bbox(ball["bbox"]):
+            frame = draw_triangle(frame, ball["bbox"], (0, 255, 0))
+
+    return draw_team_ball_control(frame, control_so_far)
+
+
 def draw_annotations(
     video_frames: list[Frame],
     tracks: dict[str, list[dict[int, dict[str, Any]]]],
     team_ball_control: npt.NDArray[np.int_],
 ) -> list[Frame]:
-    output_frames = []
-
-    for frame_num, frame in enumerate(video_frames):
-        frame = frame.copy()
-
-        player_dict = tracks["players"][frame_num]
-        ball_dict = tracks["ball"][frame_num]
-        referee_dict = tracks["referees"][frame_num]
-
-        for track_id, player in player_dict.items():
-            color = player.get("team_color", (0, 0, 255))
-            frame = draw_ellipse(frame, player["bbox"], color, track_id)
-            if player.get("has_ball", False):
-                frame = draw_triangle(frame, player["bbox"], (0, 0, 255))
-
-        for referee in referee_dict.values():
-            frame = draw_ellipse(frame, referee["bbox"], (0, 255, 255))
-
-        for ball in ball_dict.values():
-            if _is_valid_bbox(ball["bbox"]):
-                frame = draw_triangle(frame, ball["bbox"], (0, 255, 0))
-
-        frame = draw_team_ball_control(frame, frame_num, team_ball_control)
-
-        output_frames.append(frame)
-
-    return output_frames
+    return [
+        draw_annotations_on_frame(
+            frame,
+            tracks["players"][frame_num],
+            tracks["referees"][frame_num],
+            tracks["ball"][frame_num],
+            team_ball_control[: frame_num + 1],
+        )
+        for frame_num, frame in enumerate(video_frames)
+    ]

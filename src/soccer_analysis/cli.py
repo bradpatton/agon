@@ -9,7 +9,7 @@ import typer
 
 from soccer_analysis.config import CalibrationConfig, Settings
 from soccer_analysis.logging_utils import configure_logging
-from soccer_analysis.pipeline import EXPORT_FORMATS, run_pipeline
+from soccer_analysis.pipeline import EXPORT_FORMATS, run_pipeline, run_pipeline_streaming
 
 app = typer.Typer(add_completion=False, help="Soccer match footage -> ML-ready tracking data.")
 logger = logging.getLogger(__name__)
@@ -37,6 +37,13 @@ def process(
     use_cache: bool = typer.Option(
         False, "--cache/--no-cache", help="Reuse cached intermediate tracking results if present."
     ),
+    chunk_size: int | None = typer.Option(
+        None,
+        "--chunk-size",
+        help="Process the video in chunks of this many frames instead of loading it "
+        "entirely into memory -- needed for footage too long to fit in RAM as a single "
+        "frame list (e.g. a full match). Omit for the default in-memory pipeline.",
+    ),
     log_level: str = typer.Option("INFO", help="Logging verbosity."),
 ) -> None:
     """Run the full detect -> track -> analyze -> export/render pipeline on one video."""
@@ -56,19 +63,34 @@ def process(
     output_video_path = output_dir / f"{input_video.stem}_annotated.mp4" if render_video else None
     data_formats = [f for f in formats if f != "video"]
 
-    result = run_pipeline(
-        video_path=input_video,
-        model_path=model,
-        calibration=calibration_config,
-        config=settings.pipeline,
-        stub_dir=output_dir / "cache" if use_cache else None,
-        read_from_stub=use_cache,
-        output_video_path=output_video_path,
-        export_dir=output_dir if data_formats else None,
-        export_formats=data_formats,
-    )
+    if chunk_size is not None:
+        summary = run_pipeline_streaming(
+            video_path=input_video,
+            model_path=model,
+            calibration=calibration_config,
+            config=settings.pipeline,
+            chunk_size=chunk_size,
+            stub_dir=output_dir / "cache" if use_cache else None,
+            read_from_stub=use_cache,
+            output_video_path=output_video_path,
+            export_dir=output_dir if data_formats else None,
+            export_formats=data_formats,
+        )
+        logger.info("Processed %d frames.", summary.frame_count)
+    else:
+        result = run_pipeline(
+            video_path=input_video,
+            model_path=model,
+            calibration=calibration_config,
+            config=settings.pipeline,
+            stub_dir=output_dir / "cache" if use_cache else None,
+            read_from_stub=use_cache,
+            output_video_path=output_video_path,
+            export_dir=output_dir if data_formats else None,
+            export_formats=data_formats,
+        )
+        logger.info("Processed %d frames.", len(result.tracks["players"]))
 
-    logger.info("Processed %d frames.", len(result.tracks["players"]))
     if output_video_path is not None:
         logger.info("Annotated video written to %s", output_video_path)
     if data_formats:

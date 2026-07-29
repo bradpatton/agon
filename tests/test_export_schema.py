@@ -3,12 +3,21 @@ import json
 import pytest
 
 from soccer_analysis.export.schema import (
+    MatchStats,
     ObjectClass,
+    accumulate_match_stats,
     build_frame_records,
     build_match_summary,
+    finalize_match_summary,
     object_class_for,
 )
-from soccer_analysis.export.writer import write_jsonl, write_match_summary, write_parquet
+from soccer_analysis.export.writer import (
+    JsonlWriter,
+    ParquetChunkWriter,
+    write_jsonl,
+    write_match_summary,
+    write_parquet,
+)
 
 
 def _sample_tracks():
@@ -115,6 +124,23 @@ class TestBuildFrameRecords:
         assert goalkeeper.position_pitch_m is None
         assert sum(1 for o in frame1.objects if o.object_class == ObjectClass.REFEREE) == 0
 
+    def test_jersey_number_defaults_to_none(self):
+        # No jersey-number recognizer is wired into the pipeline yet (see
+        # ObjectRecord.jersey_number's docstring) -- _sample_tracks doesn't
+        # set it, so every object should come through null.
+        records = build_frame_records(_sample_tracks(), [1, 0], [(0.0, 0.0), (0.0, 0.0)], "v", 24.0)
+        assert all(o.jersey_number is None for r in records for o in r.objects)
+
+    def test_jersey_number_passes_through_when_present(self):
+        tracks = {
+            "players": [{7: {"bbox": [0, 0, 10, 10], "position": (5, 10), "jersey_number": 10}}],
+            "referees": [{}],
+            "ball": [{}],
+        }
+        [record] = build_frame_records(tracks, [0], [(0.0, 0.0)], "v", 24.0)
+        [player] = record.objects
+        assert player.jersey_number == 10
+
 
 class TestBuildMatchSummary:
     def test_possession_and_player_aggregates(self):
@@ -190,3 +216,142 @@ class TestWriters:
 
         data = json.loads(path.read_text())
         assert data["video_id"] == "v"
+
+
+class TestFrameOffset:
+    def test_frame_ids_and_timestamps_shift_by_offset(self):
+        records = build_frame_records(
+            _sample_tracks(),
+            team_ball_control=[1, 0],
+            camera_movement_per_frame=[(0.0, 0.0), (1.0, -1.0)],
+            video_id="v",
+            frame_rate=10.0,
+            frame_offset=100,
+        )
+
+        assert [r.frame_id for r in records] == [100, 101]
+        assert records[0].timestamp_s == pytest.approx(10.0)
+        assert records[1].timestamp_s == pytest.approx(10.1)
+
+    def test_explicit_frame_ids_overrides_offset_for_non_contiguous_frames(self):
+        # frame_ids is what soccer_analysis.broadcast's strip mode uses --
+        # the surviving frames after stripping aren't contiguously numbered,
+        # so a single frame_offset int can't reconstruct their true indices.
+        records = build_frame_records(
+            _sample_tracks(),
+            team_ball_control=[1, 0],
+            camera_movement_per_frame=[(0.0, 0.0), (1.0, -1.0)],
+            video_id="v",
+            frame_rate=10.0,
+            frame_offset=999,  # ignored when frame_ids is given
+            frame_ids=[5, 42],
+        )
+
+        assert [r.frame_id for r in records] == [5, 42]
+        assert records[0].timestamp_s == pytest.approx(0.5)
+        assert records[1].timestamp_s == pytest.approx(4.2)
+
+    def test_frame_classification_and_game_clock_default_to_none(self):
+        records = build_frame_records(_sample_tracks(), [1, 0], [(0.0, 0.0), (0.0, 0.0)], "v", 24.0)
+        assert all(r.frame_classification is None for r in records)
+        assert all(r.game_clock_s is None for r in records)
+
+    def test_frame_classification_and_game_clock_pass_through_when_given(self):
+        records = build_frame_records(
+            _sample_tracks(),
+            team_ball_control=[1, 0],
+            camera_movement_per_frame=[(0.0, 0.0), (1.0, -1.0)],
+            video_id="v",
+            frame_rate=10.0,
+            frame_classifications=["live_play", "replay"],
+            game_clock_s_per_frame=[123.0, None],
+        )
+
+        assert [r.frame_classification for r in records] == ["live_play", "replay"]
+        assert [r.game_clock_s for r in records] == [123.0, None]
+
+
+class TestStreamingMatchStats:
+    def test_accumulate_across_chunks_matches_whole_clip_summary(self):
+        chunk1 = {
+            "players": [{1: {"team": 1, "distance": 5.0, "speed": 10.0}}],
+            "referees": [{}],
+            "ball": [{}],
+        }
+        chunk2 = {
+            "players": [{1: {"team": 1, "distance": 8.0, "speed": 20.0}}],
+            "referees": [{}],
+            "ball": [{}],
+        }
+
+        stats = MatchStats()
+        accumulate_match_stats(stats, chunk1, [1, 1])
+        accumulate_match_stats(stats, chunk2, [2, 0])
+        summary = finalize_match_summary(stats, "v", frame_count=4, frame_rate=24.0)
+
+        whole_clip_tracks = {
+            "players": [
+                {1: {"team": 1, "distance": 5.0, "speed": 10.0}},
+                {1: {"team": 1, "distance": 8.0, "speed": 20.0}},
+            ],
+            "referees": [{}, {}],
+            "ball": [{}, {}],
+        }
+        expected = build_match_summary(
+            whole_clip_tracks, team_ball_control=[1, 1, 2, 0], video_id="v", frame_rate=24.0
+        )
+
+        assert summary.team_1_possession_pct == pytest.approx(expected.team_1_possession_pct)
+        assert summary.team_2_possession_pct == pytest.approx(expected.team_2_possession_pct)
+        assert summary.frame_count == 4
+        [player] = summary.players
+        [expected_player] = expected.players
+        assert player.total_distance_m == pytest.approx(expected_player.total_distance_m)
+        assert player.avg_speed_kmh == pytest.approx(expected_player.avg_speed_kmh)
+        assert player.max_speed_kmh == pytest.approx(expected_player.max_speed_kmh)
+
+    def test_empty_stats_produces_zeroed_summary(self):
+        summary = finalize_match_summary(MatchStats(), "v", frame_count=0, frame_rate=24.0)
+        assert summary.team_1_possession_pct == 0.0
+        assert summary.team_2_possession_pct == 0.0
+        assert summary.players == []
+
+
+class TestIncrementalWriters:
+    def test_jsonl_writer_multiple_chunks_matches_single_write(self, tmp_path):
+        records = build_frame_records(_sample_tracks(), [1, 0], [(0.0, 0.0), (0.0, 0.0)], "v", 24.0)
+        chunked_path = tmp_path / "chunked.jsonl"
+        with JsonlWriter(chunked_path) as writer:
+            writer.write_chunk(records[:1])
+            writer.write_chunk(records[1:])
+
+        whole_path = tmp_path / "whole.jsonl"
+        write_jsonl(records, whole_path)
+
+        assert chunked_path.read_text() == whole_path.read_text()
+
+    def test_parquet_writer_multiple_chunks_matches_single_write(self, tmp_path):
+        pd = pytest.importorskip("pandas")
+        records = build_frame_records(_sample_tracks(), [1, 0], [(0.0, 0.0), (0.0, 0.0)], "v", 24.0)
+        chunked_path = tmp_path / "chunked.parquet"
+        with ParquetChunkWriter(chunked_path) as writer:
+            writer.write_chunk(records[:1])
+            writer.write_chunk(records[1:])
+
+        whole_path = tmp_path / "whole.parquet"
+        write_parquet(records, whole_path)
+
+        chunked_df = pd.read_parquet(chunked_path).reset_index(drop=True)
+        whole_df = pd.read_parquet(whole_path).reset_index(drop=True)
+        pd.testing.assert_frame_equal(chunked_df, whole_df)
+
+    def test_parquet_writer_skips_empty_chunk_without_breaking_schema(self, tmp_path):
+        pd = pytest.importorskip("pandas")
+        records = build_frame_records(_sample_tracks(), [1, 0], [(0.0, 0.0), (0.0, 0.0)], "v", 24.0)
+        path = tmp_path / "with_empty_chunk.parquet"
+        with ParquetChunkWriter(path) as writer:
+            writer.write_chunk([])  # e.g. a chunk with zero frames processed
+            writer.write_chunk(records)
+
+        df = pd.read_parquet(path)
+        assert len(df) == 5

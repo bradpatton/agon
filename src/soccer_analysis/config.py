@@ -36,14 +36,54 @@ class CalibrationConfig(BaseModel):
         return cls.model_validate(json.loads(Path(path).read_text()))
 
 
+class ClockCalibrationConfig(BaseModel):
+    """Pixel region of the broadcast's on-screen match-clock graphic, for
+    ``soccer_analysis.broadcast.clock_reader.ClockReader``.
+
+    Like ``CalibrationConfig``, this is specific to one broadcast's graphics
+    layout (position, size, font) and needs recalibrating per broadcast
+    source -- there's no universal "the clock is always here" answer across
+    different broadcasters' scorebug designs.
+    """
+
+    clock_region_px: tuple[int, int, int, int] = Field(
+        description="x1, y1, x2, y2 pixel box tightly cropping just the "
+        "MM:SS digits (not the surrounding scorebug chrome/logos), from a "
+        "frame where the clock is clearly visible."
+    )
+
+    @classmethod
+    def from_json_file(cls, path: Path) -> ClockCalibrationConfig:
+        return cls.model_validate(json.loads(Path(path).read_text()))
+
+
 class PipelineConfig(BaseModel):
     """Tunable thresholds for the detection/tracking/analytics stages."""
 
     detection_confidence: float = 0.1
     detection_batch_size: int = 20
+    detection_imgsz: int = 640
+    """Inference resolution (square) fed to the detector. Must match (or be
+    a deliberate choice relative to) whatever resolution the loaded
+    checkpoint was actually trained/exported at -- a checkpoint trained at
+    1280 but run through the pipeline at the default 640 silently loses
+    the entire point of training at higher resolution (this was a real
+    bug: OnnxDetector always supported a configurable input_size, but
+    nothing above it in the pipeline ever passed one through). For a
+    ``.onnx`` checkpoint specifically, a mismatch isn't silent -- an ONNX
+    model exported with fixed (non-dynamic) input dims raises a clear
+    onnxruntime shape error rather than misbehaving quietly (confirmed:
+    running the default 640-trained models/yolo11n.onnx at
+    detection_imgsz=960 fails loudly, not silently) -- but the checkpoint
+    still needs re-exporting at the new resolution for this setting to do
+    anything, it won't magically upscale a 640-trained model's accuracy."""
     ball_max_assignment_distance_px: float = 70.0
     speed_frame_window: int = 5
-    frame_rate: float = 24.0
+    frame_rate: float | None = None
+    """Frames per second, used for speed-km/h conversion, export
+    timestamps, and the annotated video's playback fps. None (default) =
+    auto-detect from the input video's own reported fps -- set explicitly
+    only to override (e.g. a source that misreports its own fps as 0)."""
     team_kmeans_random_state: int = 0
     device: str | None = None
     """Inference device: 'cuda', 'mps', 'cpu', or None to auto-detect."""
@@ -61,6 +101,24 @@ class PipelineConfig(BaseModel):
     'botsort' = BoTSORTTracker (Kalman motion model + camera-motion
     compensation; needs the [train] extra + boxmot -- see that module's
     docstring)."""
+    frame_filter_mode: Literal["off", "tag", "strip"] = "off"
+    """'off' (default): no change in behavior. 'tag': classify every frame
+    (see soccer_analysis.broadcast.frame_filter) and attach
+    frame_classification/game_clock_s to the export, but still process
+    every frame. 'strip': additionally drop non-live-play frames (ads,
+    replays, graphics) before detection/tracking/video output -- see
+    run_pipeline's docstring for what "dropped" means for frame numbering."""
+    min_grass_fraction: float = 0.35
+    """Below this fraction of pitch-green pixels, a frame is classified as
+    a graphic/ad/interstitial rather than live pitch footage. See
+    soccer_analysis.broadcast.frame_filter's docstring for why this
+    threshold alone can't distinguish live play from a replay (both show
+    the pitch) -- that distinction needs clock_calibration below."""
+    clock_calibration_path: str | None = None
+    """Path to a ClockCalibrationConfig JSON (see that class). Required for
+    game_clock_s tagging and for telling replays apart from live play in
+    frame_filter_mode; without it, frame_filter can only distinguish
+    graphics/ads (no pitch visible) from everything else."""
 
 
 class Settings(BaseSettings):

@@ -1,8 +1,12 @@
 pipeline:
   detection_confidence: 0.1
   detection_batch_size: 20
+  detection_imgsz: 640 # must match the loaded checkpoint's trained/exported resolution
   ball_max_assignment_distance_px: 70.0
   speed_frame_window: 5
-  frame_rate: 24.0
+  frame_rate: null # auto-detect from the input video's own fps
   team_kmeans_random_state: 0
   device: null # auto-detect cuda / mps / cpu
+  frame_filter_mode: "off" # off | tag | strip -- see soccer_analysis.broadcast
+  min_grass_fraction: 0.35
+  clock_calibration_path: null # path to a ClockCalibrationConfig JSON

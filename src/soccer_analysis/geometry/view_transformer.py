@@ -10,6 +10,8 @@ per-frame alternative and its own, different limitations.
 
 from __future__ import annotations
 
+import math
+
 import cv2
 import numpy as np
 import numpy.typing as npt
@@ -39,7 +41,7 @@ class ViewTransformer:
         self.target_vertices = target_vertices
         self.perspective_transform = cv2.getPerspectiveTransform(pixel_vertices, target_vertices)
 
-    def calibrate(self, frames: list[Frame]) -> None:
+    def calibrate(self, frames: list[Frame], frame_offset: int = 0) -> None:
         """No-op: this calibrator's transform is fixed at construction time."""
 
     def transform_point(self, point: Point, frame_idx: int = 0) -> Point | None:
@@ -51,8 +53,14 @@ class ViewTransformer:
 
         Returns None if the point falls outside the calibrated pitch
         boundary (e.g. a player standing on the touchline sideline area, or
-        a tracking artifact off the visible pitch).
+        a tracking artifact off the visible pitch), or if the point itself
+        is NaN (the ball's position when it was never detected anywhere in
+        this chunk -- interpolate_ball_positions can't fill a gap it has no
+        real detection on either side of; see that function's docstring).
         """
+        if math.isnan(point[0]) or math.isnan(point[1]):
+            return None
+
         pixel_point = (int(point[0]), int(point[1]))
         is_inside = cv2.pointPolygonTest(self.pixel_vertices, pixel_point, False) >= 0
         if not is_inside:
@@ -64,9 +72,18 @@ class ViewTransformer:
         return float(x), float(y)
 
 
-def add_transformed_position_to_tracks(tracks: dict, calibrator: PitchCalibrator) -> None:
+def add_transformed_position_to_tracks(
+    tracks: dict, calibrator: PitchCalibrator, frame_offset: int = 0
+) -> None:
+    """``frame_offset``: ``tracks``' first frame's global (match-relative)
+    index -- must match whatever offset ``calibrator.calibrate()`` was
+    called with for a dynamic calibrator's per-frame transforms to line up
+    (see ``PitchKeypointCalibrator``). 0 (the default) is correct for a
+    single whole-clip call."""
     for object_tracks in tracks.values():
-        for frame_idx, frame_track in enumerate(object_tracks):
+        for local_idx, frame_track in enumerate(object_tracks):
             for track_info in frame_track.values():
                 position = track_info["position_adjusted"]
-                track_info["position_transformed"] = calibrator.transform_point(position, frame_idx)
+                track_info["position_transformed"] = calibrator.transform_point(
+                    position, frame_offset + local_idx
+                )

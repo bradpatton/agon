@@ -171,12 +171,25 @@ class PitchKeypointCalibrator:
     def __init__(self, court_width_m: float = 68.0):
         self.court_width_m = court_width_m
         self._transforms: dict[int, tuple[Point, npt.NDArray[np.float64], float]] = {}
+        # Persistent (not reset per calibrate() call) so the temporal
+        # disambiguation described in the module docstring carries across
+        # chunk boundaries in streaming/windowed processing, rather than
+        # forgetting the previous chunk's last resolved angle/size and
+        # re-seeding blind at the start of every chunk.
+        self._previous_angle: float | None = None
+        self._previous_semi_major: float | None = None
 
-    def calibrate(self, frames: list[Frame]) -> None:
-        previous_angle: float | None = None
-        previous_semi_major: float | None = None
+    def calibrate(self, frames: list[Frame], frame_offset: int = 0) -> None:
+        """``frame_offset``: this call's first frame's global (match-relative)
+        index. Only matters for chunked/streaming processing, where
+        ``frames`` covers one chunk, not the whole clip -- 0 (the default)
+        is correct for a single whole-clip call, and also the value used by
+        ``transform_point``'s default ``frame_idx=0`` for a non-chunked
+        caller.
+        """
         rejected_as_inconsistent = 0
-        for frame_idx, frame in enumerate(frames):
+        resolved_this_call = 0
+        for local_idx, frame in enumerate(frames):
             line_mask = _segment_pitch_lines(frame)
             circle = _detect_center_circle(line_mask)
             if circle is None:
@@ -191,35 +204,43 @@ class PitchKeypointCalibrator:
             # doesn't catch every false positive (a wrong arc can coincidentally
             # be a similar size to the last real detection) but it does catch
             # the clear outliers cheaply.
-            if previous_semi_major is not None:
-                ratio = semi_major / previous_semi_major
+            if self._previous_semi_major is not None:
+                ratio = semi_major / self._previous_semi_major
                 if not (0.625 <= ratio <= 1.6):
                     rejected_as_inconsistent += 1
                     continue
-            previous_semi_major = semi_major
+            self._previous_semi_major = semi_major
 
             raw_angle = _detect_halfway_line_angle(line_mask, (cx, cy), semi_major)
             if raw_angle is not None:
-                angle = _closest_equivalent_angle(raw_angle, previous_angle)
+                angle = _closest_equivalent_angle(raw_angle, self._previous_angle)
             else:
-                angle = previous_angle if previous_angle is not None else 0.0
-            previous_angle = angle
+                angle = self._previous_angle if self._previous_angle is not None else 0.0
+            self._previous_angle = angle
 
             psi = math.pi / 2 - angle
             rotation = np.array([[math.cos(psi), -math.sin(psi)], [math.sin(psi), math.cos(psi)]])
             # Semi-major axis as the scale reference -- see module docstring.
             scale = CENTER_CIRCLE_RADIUS_M / semi_major
-            self._transforms[frame_idx] = ((cx, cy), rotation, scale)
+            self._transforms[frame_offset + local_idx] = ((cx, cy), rotation, scale)
+            resolved_this_call += 1
 
         logger.info(
             "Dynamic pitch calibration: found the center circle in %d/%d frames "
             "(%d more rejected as size-inconsistent with the previous detection)",
-            len(self._transforms),
+            resolved_this_call,
             len(frames),
             rejected_as_inconsistent,
         )
 
     def transform_point(self, point: Point, frame_idx: int = 0) -> Point | None:
+        # NaN point: the ball's position when it was never detected anywhere
+        # in this chunk (see interpolate_ball_positions) -- null out rather
+        # than propagate NaN into the export (invalid JSON per spec, and
+        # meaningless as a "position").
+        if math.isnan(point[0]) or math.isnan(point[1]):
+            return None
+
         transform = self._transforms.get(frame_idx)
         if transform is None:
             return None

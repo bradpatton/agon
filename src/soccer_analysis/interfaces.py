@@ -68,17 +68,20 @@ class PitchCalibrator(Protocol):
 
     ``calibrate()`` does any one-time, whole-clip work up front (a no-op for
     a static calibrator); ``transform_point()`` is then called per point per
-    frame. ``frame_idx`` exists specifically so a *dynamic* calibrator can
-    use a different transform per frame.
+    frame. ``frame_idx``/``frame_offset`` exist specifically so a *dynamic*
+    calibrator can use a different transform per frame, including across
+    multiple ``calibrate()`` calls in chunked/streaming processing (each
+    chunk's frames start over at local index 0, so ``frame_offset`` is that
+    chunk's first frame's global/match-relative index).
 
     Two implementations: ``soccer_analysis.geometry.view_transformer.ViewTransformer``
     (one static per-video homography from four calibrated corner points --
-    ignores ``frame_idx``) and
+    ignores ``frame_idx``/``frame_offset``) and
     ``soccer_analysis.geometry.pitch_keypoint_calibrator.PitchKeypointCalibrator``
     (classical-CV per-frame center-circle detection -- see that class's
     docstring for what it actually solves and its real limitations).
     """
 
-    def calibrate(self, frames: list[Frame]) -> None: ...
+    def calibrate(self, frames: list[Frame], frame_offset: int = 0) -> None: ...
 
     def transform_point(self, point: Point, frame_idx: int = 0) -> Point | None: ...

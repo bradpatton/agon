@@ -1,0 +1,4 @@
+{
+  "_comment": "Sky Sports/NBC 'Premier League Summer Series' broadcast scorebug clock region, calibrated from input_videos/match_10min_sample.mp4 (frames at 3:02/3:03 -> confirmed OCR reads 0:33/0:34 exactly). Applies to the full match file this sample was cut from (Pre.Season.Friendly.2025.08.03.Manchester.United.Vs.Everton...), and any other clip from the same broadcast feed/graphics layout -- NOT a universal region, re-calibrate per broadcaster (see ClockCalibrationConfig's docstring).",
+  "clock_region_px": [575, 56, 717, 121]
+}
