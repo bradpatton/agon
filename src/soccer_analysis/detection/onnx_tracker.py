@@ -8,7 +8,13 @@ notes on why torch is pushed to an optional ``[train]`` extra instead).
 Export any Ultralytics checkpoint to a compatible ``.onnx`` file with
 ``model.export(format="onnx", imgsz=640, dynamic=False)`` (requires the
 ``[train]`` extra for that one-time conversion; the resulting ``.onnx`` file
-itself needs nothing but this module + onnxruntime to run).
+itself needs nothing but this module + onnxruntime to run). If the
+checkpoint was trained at a resolution other than 640 (see
+``scripts/train_detector.py --imgsz``), export at that same resolution and
+pass the matching ``input_size`` here -- ``PipelineConfig.detection_imgsz``
+is threaded through from ``pipeline._build_detector`` for exactly this;
+mismatching the two silently downsamples back to whatever ``input_size``
+says, discarding the entire benefit of training at higher resolution.
 
 A generic COCO checkpoint (e.g. Ultralytics' pretrained ``yolo11n.onnx``) only
 has ``person`` and ``sports ball`` classes -- there's no way to distinguish

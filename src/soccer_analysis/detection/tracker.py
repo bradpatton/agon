@@ -43,6 +43,7 @@ class UltralyticsDetector:
         model_path: str,
         device: str = "cpu",
         confidence: float = 0.1,
+        imgsz: int = 640,
         class_name_to_object_type: dict[str, str] | None = None,
         tracker: FrameTracker | None = None,
     ):
@@ -56,6 +57,7 @@ class UltralyticsDetector:
         self.model = YOLO(model_path)
         self.model.to(device)
         self.confidence = confidence
+        self.imgsz = imgsz
         self.tracker = tracker or ByteTrackAdapter()
         self.class_name_to_object_type = (
             class_name_to_object_type or DEFAULT_CLASS_NAME_TO_OBJECT_TYPE
@@ -64,7 +66,9 @@ class UltralyticsDetector:
     def _detect_frames(self, frames: list[Frame], batch_size: int = 20) -> list[Any]:
         detections = []
         for i in tqdm(range(0, len(frames), batch_size), desc="Detecting objects"):
-            batch = self.model.predict(frames[i : i + batch_size], conf=self.confidence)
+            batch = self.model.predict(
+                frames[i : i + batch_size], conf=self.confidence, imgsz=self.imgsz
+            )
             detections += batch
         return detections
 
