@@ -2,7 +2,7 @@
 
 *Agon* (ἀγών) — Greek for "contest" or "competition."
 
-[![CI](https://github.com/OWNER/REPO/actions/workflows/ci.yml/badge.svg)](https://github.com/OWNER/REPO/actions/workflows/ci.yml)
+[![CI](https://github.com/bradpatton/agon/actions/workflows/ci.yml/badge.svg)](https://github.com/bradpatton/agon/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](pyproject.toml)
 
@@ -11,8 +11,6 @@ player/referee/ball positions (pixel *and* pitch-space meters), team
 assignment, ball possession, and speed/distance — exported as JSONL and
 Parquet, not just an annotated video. An annotated video is still available
 as an optional output, but the data is the point.
-
-> Replace `OWNER/REPO` in the badge above once this is pushed to GitHub.
 
 ## What it does
 
@@ -38,7 +36,7 @@ what each alternative actually buys you and its real limitations.
 ## Install
 
 ```bash
-git clone <this-repo>
+git clone https://github.com/bradpatton/agon.git
 cd agon
 uv sync            # or: pip install -e .
 ```

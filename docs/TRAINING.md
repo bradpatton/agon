@@ -14,7 +14,7 @@ that check** — run it first, don't skip it.
 ## 1. Get the code and build the image
 
 ```bash
-git clone <this-repo-url> && cd agon
+git clone https://github.com/bradpatton/agon.git && cd agon
 docker build -t agon:train .
 ```
 

@@ -6,7 +6,7 @@ PRs, and questions are all welcome.
 ## Setup
 
 ```bash
-git clone <this-repo>
+git clone https://github.com/bradpatton/agon.git
 cd agon
 uv sync --extra dev
 pre-commit install
