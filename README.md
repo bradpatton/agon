@@ -177,14 +177,38 @@ imgsz=640, dynamic=False)`.
 
 ### Not yet done
 
-- **Streaming/windowed frame processing.** `read_video` loads the whole clip
-  into memory. Fine for short clips, won't scale to a full 90-minute match.
 - **Action/event recognition** (pass, shot, tackle). The export schema's
   `class` field and per-object structure are designed to extend to this
   later without a breaking change, but nothing is implemented yet. SoccerNet
   Action Spotting is the reference benchmark to build toward.
-- **Docker CUDA variant.** `Dockerfile` is CPU-only today (see
-  [Development](#development)).
+- **Learned pitch calibration.** A trained keypoint model (see Pitch
+  calibration above) — the training-data conversion script exists
+  (`scripts/convert_soccernet_gsr_to_calibration.py`) but the model itself
+  doesn't yet.
+- **Jersey number recognition, inference side.** Training is fully built and
+  validated (`scripts/train_jersey_classifier.py`, see
+  [`docs/TRAINING.md`](docs/TRAINING.md)); the export schema has
+  `jersey_number` ready to receive it, but no code path loads a trained
+  classifier and calls it during a pipeline run yet.
+- **GPU passthrough for `Dockerfile`, empirically unverified.** The image's
+  `torch` wheel has real CUDA support (confirmed via its locked
+  dependencies), and `docker run --gpus all` *should* work on a real NVIDIA
+  host — but this was built with no GPU available to actually test that
+  claim against. See [`docs/TRAINING.md`](docs/TRAINING.md)'s Step 2 for
+  the exact command to verify this the moment you have GPU hardware.
+
+## Training / fine-tuning
+
+Fine-tuning the detector (and jersey number classifier) on real SoccerNet
+data — deploying the `soccer-analysis:train` Docker image to a separate GPU
+machine, since training is CPU-impractical — is covered in
+**[`docs/TRAINING.md`](docs/TRAINING.md)**, a quick copy-paste-able guide,
+not this README. Short version: no GPU is needed to *develop against* this
+project (this repo was built entirely without one), but a real training run
+needs one; `docs/TRAINING.md` covers building the image, verifying the GPU
+is actually visible before trusting anything else, pulling and preparing
+the data, training, and deploying the resulting checkpoint back into the
+main pipeline.
 
 ## Configuration
 

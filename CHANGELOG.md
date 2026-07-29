@@ -74,3 +74,48 @@ validating end-to-end against real footage:
 - Notebooks moved to `notebooks/training/` and `notebooks/exploration/`.
 - Default video codec changed from XVID/`.avi` to H.264/`.mp4` (more
   broadly supported across OpenCV builds).
+
+## [Unreleased] - post-0.1.0
+
+### Added
+- Streaming/chunked pipeline (`run_pipeline_streaming`, `--chunk-size`):
+  bounded-memory processing of full-length matches, validated against a
+  real ~108-minute match at native 1920x1080/50fps.
+- `soccer_analysis.broadcast`: classical-CV frame classification
+  (live-play/replay/graphic) plus Tesseract-OCR match-clock reading,
+  `frame_filter_mode` (`off`/`tag`/`strip`) on `PipelineConfig` — filters
+  ads/replays/graphics out of the export and annotated video, tags frames
+  with real elapsed game-time (`game_clock_s`).
+- SoccerNet-driven model training pipeline (Phase 7): `scripts/
+  download_soccernet_gsr.py`, `scripts/convert_soccernet_gsr_to_yolo.py`,
+  `scripts/convert_soccernet_gsr_to_jersey_crops.py`, `scripts/
+  convert_soccernet_gsr_to_calibration.py`, `scripts/train_detector.py`,
+  `scripts/train_jersey_classifier.py`, `scripts/prepare_training_data.py`
+  (one-command download+convert pipeline). `ObjectRecord.jersey_number`
+  added to the export schema (not yet wired into inference).
+- `PipelineConfig.detection_imgsz`: configurable inference resolution,
+  threaded through both detector backends.
+- `docs/TRAINING.md`: quick guide for deploying the training image to a
+  GPU machine and training end to end.
+
+### Fixed
+- `OnnxDetector` always supported a configurable input resolution, but
+  nothing above it in the pipeline ever passed one through — inference
+  silently ran at 640x640 regardless of what resolution a checkpoint was
+  actually trained/exported at.
+- Pipeline defaulted `frame_rate` to a hardcoded 24fps instead of the
+  input video's actual fps, corrupting speed/distance/timestamp math and
+  the annotated video's playback speed on any non-24fps footage.
+- `IncrementalVideoWriter` didn't remove a stale file at the output path
+  first; macOS's AVFoundation backend refuses to open a `VideoWriter` at a
+  path that already exists instead of overwriting it.
+- `ViewTransformer`/`PitchKeypointCalibrator` crashed (`ValueError`) on a
+  NaN ball position (the ball never detected anywhere in a chunk).
+- `Dockerfile`'s `ENTRYPOINT` silently prepended itself to any command
+  passed to `docker run`, breaking every training-script invocation.
+- SoccerNet data-conversion scripts baked in absolute host paths (dataset
+  config and image symlinks), breaking the moment the same output
+  directory was mounted into a container at a different path.
+- `classify_frame` called OCR (~150ms) unconditionally on every frame
+  regardless of whether a frame had pitch visible at all — an unforced
+  multi-hour runtime for a 10-minute clip with clock-reading enabled.

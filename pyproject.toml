@@ -46,11 +46,27 @@ dependencies = [
 train = [
     "ultralytics>=8.3",
     "boxmot>=19.0",
+    # scripts/train_detector.py's ONNX export step (model.export(format="onnx")).
+    # Ultralytics auto-installs these on first use if missing, but that means a
+    # mid-training-run pip install requiring internet access on whatever machine
+    # is running the training job -- pinning them here so a training image/venv
+    # has them from the start instead of surprising a real run.
+    "onnx>=1.12",
+    "onnxslim>=0.1.82",
 ]
 # scripts/download_assets.py only -- not needed if you supply your own
 # model checkpoint and footage.
 assets = [
     "gdown>=5.1",
+]
+# soccer_analysis.broadcast.clock_reader.ClockReader (match-clock OCR, used by
+# the frame-filter/game-time-tagging pipeline stage). pytesseract itself is a
+# thin wrapper -- it also needs a system Tesseract install not covered by pip
+# (macOS: `brew install tesseract`; Debian/Ubuntu: `apt install
+# tesseract-ocr`). Not needed for the default pipeline run, which doesn't tag
+# game-clock time or filter non-game frames unless configured to.
+ocr = [
+    "pytesseract>=0.3.10",
 ]
 dev = [
     "pytest>=8.0",
