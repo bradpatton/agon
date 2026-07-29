@@ -182,8 +182,9 @@ imgsz=640, dynamic=False)`.
   later without a breaking change, but nothing is implemented yet. SoccerNet
   Action Spotting is the reference benchmark to build toward.
 - **Learned pitch calibration.** A trained keypoint model (see Pitch
-  calibration above) — the training-data conversion script exists
-  (`scripts/convert_soccernet_gsr_to_calibration.py`) but the model itself
+  calibration above) — training-data conversion scripts exist for two
+  combined SoccerNet sources (`scripts/convert_soccernet_gsr_to_calibration.py`,
+  `scripts/convert_soccernet_calibration_to_pixels.py`) but the model itself
   doesn't yet.
 - **Jersey number recognition, inference side.** Training is fully built and
   validated (`scripts/train_jersey_classifier.py`, see
@@ -210,6 +211,17 @@ is actually visible before trusting anything else, pulling and preparing
 the data, training, and deploying the resulting checkpoint back into the
 main pipeline.
 
+Training data comes from three combined SoccerNet sources, pulled and
+converted by one command (`scripts/prepare_training_data.py`): **SN-GSR-2025**
+(HuggingFace, no NDA — detection boxes, jersey numbers, pitch lines from a
+curated game subset), and two legacy OwnCloud-hosted datasets that download
+with SoccerNet's generic public password rather than an NDA-gated one —
+**Calibration** (standalone pitch-line-annotated images, broader scene
+diversity than GSR's video sequences) and **Jersey-2023** (richer,
+tracklet-based jersey number data). All three land in the same output
+directories regardless of source, so `train_detector.py` and
+`train_jersey_classifier.py` need no changes to use them together.
+
 ## Configuration
 
 `configs/default.yaml` sets `PipelineConfig` defaults (detection confidence,
@@ -224,7 +236,7 @@ one for new footage).
 
 ```bash
 uv sync --extra dev
-pytest                              # 50+ tests, pure logic + synthetic inputs, no video/model needed
+pytest                              # 94 tests, pure logic + synthetic inputs, no video/model needed
 ruff check src/ tests/ && ruff format --check src/ tests/
 mypy src/agon
 pre-commit install                  # run the above automatically on commit
@@ -257,7 +269,8 @@ src/agon/
   export/                   # versioned schema + JSONL/Parquet/summary writers
   viz/                      # annotated-video drawing
 configs/                    # pipeline defaults + per-video pitch calibration
-scripts/                    # asset download, team-embedding model export
+scripts/                    # asset download, team-embedding model export,
+                             # SoccerNet download/convert/train (see docs/TRAINING.md)
 notebooks/                  # training/exploration notebooks (not part of the pipeline)
 tests/
 ```
@@ -265,7 +278,7 @@ tests/
 ## License & credits
 
 MIT — see [LICENSE](LICENSE). This project restructures, hardens, and
-extends a well-known public YOLO + ByteTrack + KMeans agon
+extends a well-known public YOLO + ByteTrack + KMeans soccer-analysis
 tutorial (detection/tracking/team-color/camera-compensation/homography/
 speed-distance pipeline). If you recognize the original author or source
 repo, please open a PR to add proper attribution here — it wasn't included

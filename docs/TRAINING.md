@@ -36,24 +36,54 @@ Expect `True <N>` (`N` = your GPU count, e.g. 3). If `False`:
 
 ## 3. Pull and prepare the training data
 
-One command — downloads SoccerNet SN-GSR-2025 (HuggingFace, public, no NDA),
-extracts it, and converts it to both training formats:
+One command — downloads from every SoccerNet source this project can
+currently train from, extracts, and converts to training format:
 
 ```bash
 docker run --rm -v "$(pwd)/data:/data" -w /app agon:train \
   python scripts/prepare_training_data.py --split train valid
 ```
 
-- Budget **~20GB** and bandwidth-proportional time; set `HF_TOKEN` in your
-  environment for faster/more reliable downloads.
+Three sources, combined into the same output directories regardless of
+which one a given example came from:
+- **SN-GSR-2025** (HuggingFace, public, no NDA) — detection boxes +
+  jersey numbers + pitch lines, from a curated subset of games.
+- **Legacy Calibration** — standalone action/replay images with pitch-line
+  annotations, curated from many different games/broadcasts (more scene
+  diversity per image than GSR's video-sequence frames, genuinely
+  complementary, not just more of the same).
+- **Legacy Jersey-2023** — the original, richer jersey-number dataset:
+  full per-player tracklets (dozens of crops per player over time, not
+  one static crop), sampled evenly per tracklet rather than using every
+  frame (they're highly redundant at video frame rate).
+
+All three were originally assumed NDA-gated and were nearly skipped —
+turned out they download fine with SoccerNet's **generic public password**
+(distinct from the personal NDA password issued for raw broadcast video),
+confirmed by actually downloading and inspecting real data, not just
+checking HTTP status. See `download_soccernet_legacy.py`'s docstring.
+
+- Budget **~20GB+** and bandwidth-proportional time (more if you add
+  `legacy-jersey`, which is many small files and slower to extract); set
+  `HF_TOKEN` in your environment for faster/more reliable HuggingFace
+  downloads.
 - Idempotent — safe to re-run, skips what's already done.
 - `-v "$(pwd)/data:/data"` is required — without it, downloaded data dies
   with the container instead of persisting.
-- Add `--skip-jersey` for detection-only, or `--split test` for a small
-  (~8.85GB) validation pass first.
-- The raw broadcast videos (a separate SoccerNet asset) are **not** what
-  this pulls, deliberately — they carry no bounding-box labels, so they're
-  not usable training data for this pipeline. This is the real thing.
+- `--sources gsr` (or `legacy-calibration`/`legacy-jersey`) to pull just
+  one. `--skip-jersey` skips GSR's jersey conversion specifically. `--split
+  test` for a small validation pass across all three before committing to
+  `train`+`valid`.
+- The raw broadcast videos (a separate SoccerNet asset, genuinely NDA-gated
+  with your *personal* password) are **not** what this pulls, deliberately
+  — they carry no bounding-box labels of their own, so they're not usable
+  training data for this pipeline on their own.
+- **Not pulled by this script, available but not yet integrated**: the
+  full Tracking dataset (would extend detection training with more volume,
+  beyond what GSR already covers) and Re-Identification (a genuinely new
+  capability, not something this project does today). Both confirmed
+  downloadable the same way if you want to extend this further — see the
+  project plan.
 
 ## 4. Train
 
@@ -111,9 +141,9 @@ agon --input <video> --model models/best.onnx \
 
 ## Known gaps (honest, not hidden)
 
-- **Pitch calibration model**: not built yet (only the data-prep script
-  exists). Detection + jersey number training are the complete, validated
-  paths today.
+- **Pitch calibration model**: not built yet (only the data-prep scripts
+  exist, now fed by two sources — see Step 3). Detection + jersey number
+  training are the complete, validated, trainable paths today.
 - **Jersey classifier isn't wired into inference yet.** Training is done
   and validated; `ObjectRecord.jersey_number` exists in the export schema
   ready to receive it, but no pipeline code loads a trained jersey model

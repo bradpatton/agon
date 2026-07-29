@@ -97,6 +97,16 @@ validating end-to-end against real footage:
   threaded through both detector backends.
 - `docs/TRAINING.md`: quick guide for deploying the training image to a
   GPU machine and training end to end.
+- Project renamed from `soccer-analysis` to **Agon** (ἀγών, Greek for
+  "contest") throughout: package (`src/agon`), CLI command, Docker image,
+  env var prefix.
+- Two more SoccerNet training data sources, combined with SN-GSR-2025 into
+  the same training directories: `scripts/download_soccernet_legacy.py`,
+  `scripts/convert_soccernet_calibration_to_pixels.py` (2,719 standalone
+  pitch-calibration images, more scene diversity than GSR's video-sequence
+  frames), `scripts/convert_soccernet_jersey2023_to_crops.py` (the richer,
+  tracklet-based jersey number dataset, evenly sampled per tracklet).
+  `prepare_training_data.py` rewritten to orchestrate all three sources.
 
 ### Fixed
 - `OnnxDetector` always supported a configurable input resolution, but
@@ -119,3 +129,7 @@ validating end-to-end against real footage:
 - `classify_frame` called OCR (~150ms) unconditionally on every frame
   regardless of whether a frame had pitch visible at all — an unforced
   multi-hour runtime for a 10-minute clip with clock-reading enabled.
+- SoccerNet's legacy Tracking/Calibration/Re-ID/Jersey-2023 datasets were
+  wrongly documented as broken — they were tested with the wrong password
+  (a personal NDA video-download password, not the generic public one
+  these specific datasets actually use); re-tested and confirmed working.
