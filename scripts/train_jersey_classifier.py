@@ -3,7 +3,7 @@
 item 3. Jersey number recognition doesn't exist anywhere in this codebase
 yet; this is the training half, mirroring ``train_detector.py``'s pattern.
 
-Needs the ``[train]`` extra: ``pip install 'soccer-analysis[train]'``.
+Needs the ``[train]`` extra: ``pip install 'agon[train]'``.
 
 Uses Ultralytics' image-classification training mode (``YOLO("*-cls.pt")``)
 rather than a separate torchvision training loop, since the conversion
@@ -78,8 +78,7 @@ def main() -> None:
         from ultralytics import YOLO
     except ImportError:
         print(
-            "train_jersey_classifier.py needs the 'train' extra: "
-            "pip install 'soccer-analysis[train]'",
+            "train_jersey_classifier.py needs the 'train' extra: pip install 'agon[train]'",
             file=sys.stderr,
         )
         sys.exit(1)

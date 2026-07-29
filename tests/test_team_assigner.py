@@ -1,6 +1,6 @@
 import numpy as np
 
-from soccer_analysis.team.team_assigner import TeamAssigner
+from agon.team.team_assigner import TeamAssigner
 
 
 def _frame_with_two_colored_players():

@@ -3,13 +3,13 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "soccer-analysis"
+name = "agon"
 version = "0.1.0"
 description = "Detect, track, and export structured player/ball tracking data from soccer match footage for downstream ML analysis."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11"
-authors = [{ name = "Soccer Video Analysis contributors" }]
+authors = [{ name = "Agon contributors" }]
 classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
@@ -36,8 +36,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Torch-backed detector (soccer_analysis.detection.tracker.UltralyticsDetector),
-# BoT-SORT tracking (soccer_analysis.detection.botsort_tracker.BoTSORTTracker),
+# Torch-backed detector (agon.detection.tracker.UltralyticsDetector),
+# BoT-SORT tracking (agon.detection.botsort_tracker.BoTSORTTracker),
 # and training/fine-tuning workflows. Not needed for the default onnxruntime
 # runtime path -- see the Modernization notes in the project plan for why
 # torch isn't a core dependency here. boxmot (BoT-SORT) imports torch
@@ -59,7 +59,7 @@ train = [
 assets = [
     "gdown>=5.1",
 ]
-# soccer_analysis.broadcast.clock_reader.ClockReader (match-clock OCR, used by
+# agon.broadcast.clock_reader.ClockReader (match-clock OCR, used by
 # the frame-filter/game-time-tagging pipeline stage). pytesseract itself is a
 # thin wrapper -- it also needs a system Tesseract install not covered by pip
 # (macOS: `brew install tesseract`; Debian/Ubuntu: `apt install
@@ -77,10 +77,10 @@ dev = [
 ]
 
 [project.scripts]
-soccer-analysis = "soccer_analysis.cli:app"
+agon = "agon.cli:app"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/soccer_analysis"]
+packages = ["src/agon"]
 
 [tool.ruff]
 line-length = 100
@@ -92,7 +92,7 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 [tool.ruff.lint.per-file-ignores]
 # typer.Option(...) as an argument default is the idiomatic Typer pattern,
 # not the mutable-default-argument bug B008 warns about.
-"src/soccer_analysis/cli.py" = ["B008"]
+"src/agon/cli.py" = ["B008"]
 
 [tool.mypy]
 python_version = "3.11"
@@ -104,4 +104,4 @@ disallow_untyped_defs = false
 testpaths = ["tests"]
 
 [tool.coverage.run]
-source = ["src/soccer_analysis"]
+source = ["src/agon"]

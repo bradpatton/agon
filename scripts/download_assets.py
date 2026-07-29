@@ -4,7 +4,7 @@ assets manually. Both are hosted on the original football_analysis
 tutorial's Google Drive (see README credits) -- this script doesn't fetch
 anything not already linked from this project's own docs.
 
-Needs the ``assets`` extra: ``pip install 'soccer-analysis[assets]'``
+Needs the ``assets`` extra: ``pip install 'agon[assets]'``
 (just ``gdown``, for handling Google Drive's large-file download flow).
 
 Usage:
@@ -55,7 +55,7 @@ def _download(url: str, dest: Path, force: bool) -> None:
         import gdown
     except ImportError:
         print(
-            "This script needs gdown: pip install 'soccer-analysis[assets]'",
+            "This script needs gdown: pip install 'agon[assets]'",
             file=sys.stderr,
         )
         sys.exit(1)

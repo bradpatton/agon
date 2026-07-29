@@ -34,7 +34,7 @@ jobs:
         run: uv run ruff format --check src/ tests/ scripts/
 
       - name: mypy
-        run: uv run mypy src/soccer_analysis
+        run: uv run mypy src/agon
 
       - name: pytest
-        run: uv run pytest tests/ --cov=src/soccer_analysis --cov-report=term-missing
+        run: uv run pytest tests/ --cov=src/agon --cov-report=term-missing

@@ -10,7 +10,7 @@ labels: bug
 **What you expected instead**
 
 **Reproduction**
-- Command / config used (`soccer-analysis --format ... --model ... --calibration ...`, or the `run_pipeline(...)` call if scripting):
+- Command / config used (`agon --format ... --model ... --calibration ...`, or the `run_pipeline(...)` call if scripting):
 - `PipelineConfig` non-defaults (`calibration_mode`, `team_classifier`, `tracker_backend`, ...), if any:
 
 **Footage/checkpoint characteristics** (these matter a lot for what's actually reachable in this codebase)
@@ -21,7 +21,7 @@ labels: bug
 **Environment**
 - OS + architecture:
 - Python version:
-- Output of `pip show soccer-analysis onnxruntime` (and `torch`/`ultralytics`/`boxmot` if the `[train]` extra is installed):
+- Output of `pip show agon onnxruntime` (and `torch`/`ultralytics`/`boxmot` if the `[train]` extra is installed):
 
 **Logs / traceback**
 

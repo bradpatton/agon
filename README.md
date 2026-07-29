@@ -1,4 +1,6 @@
-# Soccer Video Analysis
+# Agon
+
+*Agon* (ἀγών) — Greek for "contest" or "competition."
 
 [![CI](https://github.com/OWNER/REPO/actions/workflows/ci.yml/badge.svg)](https://github.com/OWNER/REPO/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -28,7 +30,7 @@ flowchart LR
 ```
 
 Every stage marked "default / alternative" is swappable via config, behind a
-`typing.Protocol` interface (see `src/soccer_analysis/interfaces.py`) — no
+`typing.Protocol` interface (see `src/agon/interfaces.py`) — no
 pipeline code changes needed to pick a different backend. See
 [Modernization & backend options](#modernization--backend-options) below for
 what each alternative actually buys you and its real limitations.
@@ -37,7 +39,7 @@ what each alternative actually buys you and its real limitations.
 
 ```bash
 git clone <this-repo>
-cd soccer-video-analysis
+cd agon
 uv sync            # or: pip install -e .
 ```
 
@@ -64,7 +66,7 @@ python scripts/download_assets.py
 # (needs the [train] extra just for this one-time conversion):
 python -c "from ultralytics import YOLO; YOLO('models/best.pt').export(format='onnx', imgsz=640, dynamic=False)"
 
-soccer-analysis \
+agon \
   --input input_videos/08fd33_4.mp4 \
   --model models/best.onnx \
   --calibration configs/calibration/example_pitch.json \
@@ -84,7 +86,7 @@ pointing it at different footage.
 ## Output data schema
 
 One record per frame, `schema_version`-stamped for forward compatibility
-(`src/soccer_analysis/export/schema.py` is the source of truth; a JSON
+(`src/agon/export/schema.py` is the source of truth; a JSON
 Schema is published via `--format schema`):
 
 ```json
@@ -141,7 +143,7 @@ first cut at fixing this per-frame: it detects the pitch's center circle each
 frame (its real-world 9.15m radius gives scale + position) and the halfway
 line's angle (gives rotation). It is **not** a trained keypoint model and
 **not** a full projective homography — read
-`src/soccer_analysis/geometry/pitch_keypoint_calibrator.py`'s module
+`src/agon/geometry/pitch_keypoint_calibrator.py`'s module
 docstring before trusting its output for anything beyond relative
 speed/distance. It returns `null` positions for frames where it can't find
 the circle (most of a real match), same as the static calibrator does
@@ -200,7 +202,7 @@ imgsz=640, dynamic=False)`.
 ## Training / fine-tuning
 
 Fine-tuning the detector (and jersey number classifier) on real SoccerNet
-data — deploying the `soccer-analysis:train` Docker image to a separate GPU
+data — deploying the `agon:train` Docker image to a separate GPU
 machine, since training is CPU-impractical — is covered in
 **[`docs/TRAINING.md`](docs/TRAINING.md)**, a quick copy-paste-able guide,
 not this README. Short version: no GPU is needed to *develop against* this
@@ -215,7 +217,7 @@ main pipeline.
 `configs/default.yaml` sets `PipelineConfig` defaults (detection confidence,
 speed-window size, `calibration_mode`, `team_classifier`, `tracker_backend`,
 inference device, ...) — override with `--config your.yaml` or
-`SOCCER_ANALYSIS_PIPELINE__<FIELD>` env vars. `configs/calibration/*.json` is
+`AGON_PIPELINE__<FIELD>` env vars. `configs/calibration/*.json` is
 per-video/per-camera-angle: four pixel corner points + real pitch dimensions
 (see `configs/calibration/example_pitch.json`'s comments for how to build
 one for new footage).
@@ -226,7 +228,7 @@ one for new footage).
 uv sync --extra dev
 pytest                              # 50+ tests, pure logic + synthetic inputs, no video/model needed
 ruff check src/ tests/ && ruff format --check src/ tests/
-mypy src/soccer_analysis
+mypy src/agon
 pre-commit install                  # run the above automatically on commit
 ```
 
@@ -236,10 +238,10 @@ The `[train]`-extra-dependent backends (`UltralyticsDetector`,
 environment:
 
 ```bash
-docker build -t soccer-analysis:train .
+docker build -t agon:train .
 docker run --rm -v "$(pwd)/input_videos:/data/input_videos:ro" \
   -v "$(pwd)/models:/data/models:ro" -v "$(pwd)/configs:/data/configs:ro" \
-  -v "$(pwd)/output:/data/output" -w /data soccer-analysis:train \
+  -v "$(pwd)/output:/data/output" -w /data agon:train \
   --input input_videos/your_clip.mp4 --model models/best.pt \
   --calibration configs/calibration/your_calibration.json
 ```
@@ -247,7 +249,7 @@ docker run --rm -v "$(pwd)/input_videos:/data/input_videos:ro" \
 ## Repo layout
 
 ```
-src/soccer_analysis/
+src/agon/
   cli.py, pipeline.py       # entry point + orchestration
   detection/                # Detector backends + tracking assembly
   camera/                   # optical-flow camera-movement compensation
@@ -265,7 +267,7 @@ tests/
 ## License & credits
 
 MIT — see [LICENSE](LICENSE). This project restructures, hardens, and
-extends a well-known public YOLO + ByteTrack + KMeans soccer-analysis
+extends a well-known public YOLO + ByteTrack + KMeans agon
 tutorial (detection/tracking/team-color/camera-compensation/homography/
 speed-distance pipeline). If you recognize the original author or source
 repo, please open a PR to add proper attribution here — it wasn't included

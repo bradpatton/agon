@@ -3,7 +3,7 @@
 All notable changes to this project are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project
 versions the export schema independently via `SCHEMA_VERSION` in
-`src/soccer_analysis/export/schema.py`, not just the package version.
+`src/agon/export/schema.py`, not just the package version.
 
 ## [0.1.0] - Unreleased
 
@@ -12,9 +12,9 @@ versions the export schema independently via `SCHEMA_VERSION` in
   `ObjectRecord`/`MatchSummary`), JSONL + Parquet + match-summary + JSON
   Schema writers — the project's core new capability, replacing "annotated
   video only" as the primary output.
-- `soccer-analysis` CLI (Typer), `--format` flag selecting any combination
+- `agon` CLI (Typer), `--format` flag selecting any combination
   of `jsonl`/`parquet`/`summary`/`schema`/`video`.
-- Installable `src/soccer_analysis` package (`pyproject.toml`, `uv.lock`)
+- Installable `src/agon` package (`pyproject.toml`, `uv.lock`)
   replacing the original tutorial's flat, `sys.path`-hacked scripts.
 - `OnnxDetector`: torch-free default detector backend (onnxruntime), plus
   `UltralyticsDetector` (torch-backed) and `BoTSORTTracker` behind the
@@ -81,7 +81,7 @@ validating end-to-end against real footage:
 - Streaming/chunked pipeline (`run_pipeline_streaming`, `--chunk-size`):
   bounded-memory processing of full-length matches, validated against a
   real ~108-minute match at native 1920x1080/50fps.
-- `soccer_analysis.broadcast`: classical-CV frame classification
+- `agon.broadcast`: classical-CV frame classification
   (live-play/replay/graphic) plus Tesseract-OCR match-clock reading,
   `frame_filter_mode` (`off`/`tag`/`strip`) on `PipelineConfig` — filters
   ads/replays/graphics out of the export and annotated video, tags frames

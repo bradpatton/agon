@@ -4,7 +4,7 @@ import cv2
 import numpy as np
 import pytest
 
-from soccer_analysis.geometry.pitch_keypoint_calibrator import (
+from agon.geometry.pitch_keypoint_calibrator import (
     PitchKeypointCalibrator,
     _closest_equivalent_angle,
     _detect_center_circle,

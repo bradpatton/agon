@@ -1,4 +1,4 @@
-from soccer_analysis.analytics.player_ball_assigner import PlayerBallAssigner
+from agon.analytics.player_ball_assigner import PlayerBallAssigner
 
 
 def test_assigns_closest_player_within_threshold():

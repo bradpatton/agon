@@ -48,9 +48,9 @@ ENV PATH="/app/.venv/bin:${PATH}"
 # both as the inference CLI (`docker run <image>` with no args runs the
 # default CMD below) and as a training environment (`docker run <image>
 # python scripts/train_detector.py ...`). An ENTRYPOINT pinned to
-# `soccer-analysis` would silently prepend itself to that second form,
+# `agon` would silently prepend itself to that second form,
 # turning a training command into a broken CLI invocation -- confirmed by
 # hitting exactly that failure mode, which is why this is CMD, not
 # ENTRYPOINT (CMD is replaced outright by any command given to `docker
 # run`; ENTRYPOINT's argv is only ever appended to).
-CMD ["soccer-analysis", "--help"]
+CMD ["agon", "--help"]

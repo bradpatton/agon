@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from soccer_analysis.config import (
+from agon.config import (
     CalibrationConfig,
     ClockCalibrationConfig,
     PipelineConfig,

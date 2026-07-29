@@ -1,13 +1,13 @@
 """Fine-tunes the YOLO detector on a converted SoccerNet dataset (see
 ``convert_soccernet_gsr_to_yolo.py``) -- project plan Phase 7, item 1.
 
-Needs the ``[train]`` extra: ``pip install 'soccer-analysis[train]'``
+Needs the ``[train]`` extra: ``pip install 'agon[train]'``
 (torch + ultralytics). This is a one-time/occasional training step, not
 part of the runtime package -- same reasoning as
 ``export_team_embedding_model.py``.
 
 Resolution matters here specifically because the ball is a tiny object in
-broadcast-resolution frames -- see ``soccer_analysis.config.PipelineConfig
+broadcast-resolution frames -- see ``agon.config.PipelineConfig
 .detection_imgsz``'s docstring for the real bug this project had (inference
 silently stuck at 640 regardless of what a checkpoint was trained at) that
 made this worth being deliberate about. Whatever ``--imgsz`` you train
@@ -90,7 +90,7 @@ def main() -> None:
         from ultralytics import YOLO
     except ImportError:
         print(
-            "train_detector.py needs the 'train' extra: pip install 'soccer-analysis[train]'",
+            "train_detector.py needs the 'train' extra: pip install 'agon[train]'",
             file=sys.stderr,
         )
         sys.exit(1)

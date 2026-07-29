@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from soccer_analysis.broadcast.frame_filter import (
+from agon.broadcast.frame_filter import (
     FrameClassification,
     classify_frame,
     grass_fraction,

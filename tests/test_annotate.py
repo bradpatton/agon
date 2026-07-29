@@ -2,7 +2,7 @@ import math
 
 import numpy as np
 
-from soccer_analysis.viz.annotate import _is_valid_bbox, draw_annotations
+from agon.viz.annotate import _is_valid_bbox, draw_annotations
 
 
 def test_is_valid_bbox_true_for_normal_box():

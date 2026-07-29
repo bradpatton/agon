@@ -1,6 +1,6 @@
 import math
 
-from soccer_analysis.detection.base import (
+from agon.detection.base import (
     _tracks_from_jsonable,
     _tracks_to_jsonable,
     interpolate_ball_positions,

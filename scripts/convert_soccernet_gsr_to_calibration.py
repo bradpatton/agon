@@ -1,7 +1,7 @@
 """Converts SoccerNet Game State Reconstruction (SN-GSR-2025) sequences'
 pitch-line annotations into a clean, pixel-space training format for a
 learned pitch-calibration model (project plan Phase 7, item 2 -- the
-eventual replacement for ``soccer_analysis.geometry.pitch_keypoint_calibrator
+eventual replacement for ``agon.geometry.pitch_keypoint_calibrator
 .PitchKeypointCalibrator``'s classical-CV first cut).
 
 SN-GSR's ``category_id=5`` ("pitch") annotations give one entry per frame:

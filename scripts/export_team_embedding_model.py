@@ -1,7 +1,7 @@
 """One-time export: a small pretrained CNN backbone -> ONNX.
 
 Produces the embedding model used by
-``soccer_analysis.team.embedding_team_assigner.EmbeddingTeamClassifier`` to
+``agon.team.embedding_team_assigner.EmbeddingTeamClassifier`` to
 cluster player crops into teams (see that module's docstring for why this
 is more robust than raw-pixel KMeans).
 

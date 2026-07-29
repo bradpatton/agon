@@ -2,8 +2,8 @@ import cv2
 import numpy as np
 import pytest
 
-from soccer_analysis.broadcast.clock_reader import ClockReader, _parse_clock_text
-from soccer_analysis.config import ClockCalibrationConfig
+from agon.broadcast.clock_reader import ClockReader, _parse_clock_text
+from agon.config import ClockCalibrationConfig
 
 
 class TestParseClockText:

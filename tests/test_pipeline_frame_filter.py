@@ -1,7 +1,7 @@
 import numpy as np
 
-from soccer_analysis.config import PipelineConfig
-from soccer_analysis.pipeline import _classify_frames
+from agon.config import PipelineConfig
+from agon.pipeline import _classify_frames
 
 
 def _pitch_green_frame(size=(20, 20)) -> np.ndarray:

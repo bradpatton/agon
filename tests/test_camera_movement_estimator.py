@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from soccer_analysis.camera.camera_movement_estimator import (
+from agon.camera.camera_movement_estimator import (
     CameraFlowState,
     CameraMovementEstimator,
 )

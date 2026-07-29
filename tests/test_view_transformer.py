@@ -1,7 +1,7 @@
 import pytest
 
-from soccer_analysis.config import CalibrationConfig
-from soccer_analysis.geometry.view_transformer import ViewTransformer
+from agon.config import CalibrationConfig
+from agon.geometry.view_transformer import ViewTransformer
 
 
 def _identity_calibration() -> CalibrationConfig:

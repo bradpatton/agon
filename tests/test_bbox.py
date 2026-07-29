@@ -1,4 +1,4 @@
-from soccer_analysis.geometry.bbox import (
+from agon.geometry.bbox import (
     get_bbox_width,
     get_center_of_bbox,
     get_foot_position,

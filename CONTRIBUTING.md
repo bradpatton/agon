@@ -7,7 +7,7 @@ PRs, and questions are all welcome.
 
 ```bash
 git clone <this-repo>
-cd soccer-video-analysis
+cd agon
 uv sync --extra dev
 pre-commit install
 ```
@@ -24,7 +24,7 @@ platform.
 pytest
 ruff check src/ tests/
 ruff format --check src/ tests/
-mypy src/soccer_analysis
+mypy src/agon
 ```
 
 All of the above run in CI; running them locally first saves a round trip.
@@ -36,7 +36,7 @@ All of the above run in CI; running them locally first saves a round trip.
   already in `tests/` — no video or model file should be required to run the
   suite. If you're adding a new `Detector`/`PitchCalibrator`/`TeamClassifier`/
   `FrameTracker` backend, it should satisfy the existing protocol in
-  `src/soccer_analysis/interfaces.py` (or `detection/base.py` for
+  `src/agon/interfaces.py` (or `detection/base.py` for
   `FrameTracker`) so it's swappable via config without touching
   `pipeline.py`.
 - **Comments explain *why*, not *what*.** Only add one when there's a
@@ -49,7 +49,7 @@ All of the above run in CI; running them locally first saves a round trip.
   update its docstring's limitations section rather than just removing it —
   and if you're not sure whether a change actually fixes the underlying
   problem or just moves it, say so in the PR description.
-- **Breaking changes to `soccer_analysis.export.schema`** need a
+- **Breaking changes to `agon.export.schema`** need a
   `SCHEMA_VERSION` bump (see that module's docstring) — the export format is
   a public contract for downstream ML tooling, not an internal detail.
 

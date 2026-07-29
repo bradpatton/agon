@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from soccer_analysis.export.schema import (
+from agon.export.schema import (
     MatchStats,
     ObjectClass,
     accumulate_match_stats,
@@ -11,7 +11,7 @@ from soccer_analysis.export.schema import (
     finalize_match_summary,
     object_class_for,
 )
-from soccer_analysis.export.writer import (
+from agon.export.writer import (
     JsonlWriter,
     ParquetChunkWriter,
     write_jsonl,
@@ -234,7 +234,7 @@ class TestFrameOffset:
         assert records[1].timestamp_s == pytest.approx(10.1)
 
     def test_explicit_frame_ids_overrides_offset_for_non_contiguous_frames(self):
-        # frame_ids is what soccer_analysis.broadcast's strip mode uses --
+        # frame_ids is what agon.broadcast's strip mode uses --
         # the surviving frames after stripping aren't contiguously numbered,
         # so a single frame_offset int can't reconstruct their true indices.
         records = build_frame_records(

@@ -1,7 +1,7 @@
 # Quick guide: deploy to Docker on the ML machine, train, deploy the result
 
 Fine-tunes the detector (player/goalkeeper/referee/ball) and the jersey
-number classifier on SoccerNet data, using the `soccer-analysis:train`
+number classifier on SoccerNet data, using the `agon:train`
 Docker image, on a separate GPU machine (training is CPU-impractical — see
 the project plan).
 
@@ -14,8 +14,8 @@ that check** — run it first, don't skip it.
 ## 1. Get the code and build the image
 
 ```bash
-git clone <this-repo-url> && cd soccer-analysis
-docker build -t soccer-analysis:train .
+git clone <this-repo-url> && cd agon
+docker build -t agon:train .
 ```
 
 `models/` and `data/` are gitignored (nothing large comes over via git) —
@@ -25,7 +25,7 @@ run, so the ML machine needs internet access at least once.
 ## 2. Verify the GPU is actually visible
 
 ```bash
-docker run --rm --gpus all soccer-analysis:train \
+docker run --rm --gpus all agon:train \
   python -c "import torch; print(torch.cuda.is_available(), torch.cuda.device_count())"
 ```
 
@@ -40,7 +40,7 @@ One command — downloads SoccerNet SN-GSR-2025 (HuggingFace, public, no NDA),
 extracts it, and converts it to both training formats:
 
 ```bash
-docker run --rm -v "$(pwd)/data:/data" -w /app soccer-analysis:train \
+docker run --rm -v "$(pwd)/data:/data" -w /app agon:train \
   python scripts/prepare_training_data.py --split train valid
 ```
 
@@ -61,7 +61,7 @@ docker run --rm -v "$(pwd)/data:/data" -w /app soccer-analysis:train \
 ```bash
 docker run --rm --gpus all \
   -v "$(pwd)/data:/data" -v "$(pwd)/models:/app/models" \
-  -w /app soccer-analysis:train \
+  -w /app agon:train \
   python scripts/train_detector.py \
     --data /data/soccernet_yolo/dataset.yaml \
     --imgsz 960 --epochs 50 --batch 32 --device 0,1,2
@@ -71,7 +71,7 @@ docker run --rm --gpus all \
 ```bash
 docker run --rm --gpus all \
   -v "$(pwd)/data:/data" -v "$(pwd)/models:/app/models" \
-  -w /app soccer-analysis:train \
+  -w /app agon:train \
   python scripts/train_jersey_classifier.py \
     --data /data/soccernet_jersey --epochs 30 --device 0,1,2
 ```
@@ -105,7 +105,7 @@ pipeline:
 ```
 
 ```bash
-soccer-analysis --input <video> --model models/best.onnx \
+agon --input <video> --model models/best.onnx \
   --calibration <calibration.json> --config your-config.yaml
 ```
 

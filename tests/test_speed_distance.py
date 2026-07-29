@@ -1,6 +1,6 @@
 import pytest
 
-from soccer_analysis.analytics.speed_distance import SpeedDistanceEstimator
+from agon.analytics.speed_distance import SpeedDistanceEstimator
 
 
 def _frame(position) -> dict:

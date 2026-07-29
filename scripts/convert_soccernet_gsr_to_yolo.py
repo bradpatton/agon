@@ -1,6 +1,6 @@
 """Converts SoccerNet Game State Reconstruction (SN-GSR-2025) sequences into
 YOLO-format detection training data, for fine-tuning
-``soccer_analysis.detection.tracker.UltralyticsDetector``'s checkpoint (see
+``agon.detection.tracker.UltralyticsDetector``'s checkpoint (see
 the project plan's Phase 7, item 1).
 
 Each SNGS-* sequence directory (``Labels-GameState.json`` + ``img1/*.jpg``,
@@ -8,7 +8,7 @@ one folder per downloaded split -- see ``download_soccernet_gsr.py``) becomes
 YOLO label ``.txt`` files (one per frame, symlinked alongside the source
 image) plus a ``dataset.yaml`` ultralytics can train against directly.
 
-Class mapping matches ``soccer_analysis.export.schema.ObjectClass`` exactly
+Class mapping matches ``agon.export.schema.ObjectClass`` exactly
 -- SN-GSR's ``category_id`` 1-4 (1-indexed, COCO-style) map to YOLO's
 0-indexed classes by subtracting 1:
     0 player, 1 goalkeeper, 2 referee, 3 ball
