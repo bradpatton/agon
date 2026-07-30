@@ -150,3 +150,15 @@ validating end-to-end against real footage:
   name — since the image has no `ENTRYPOINT`, `docker run <image> --input
   ...` tried to exec `--input` itself as the container's process and failed
   immediately.
+- `huggingface_hub` and the `SoccerNet` pip package (used by
+  `download_soccernet_gsr.py`/`download_soccernet_legacy.py`) were never
+  declared as dependencies anywhere — interactive testing on dev machines
+  worked because they'd been manually `pip install`ed into a throwaway
+  venv, but a fresh `uv sync --extra train` (i.e. building the Docker
+  image from scratch) never installed them, so `prepare_training_data.py`
+  failed for every data source inside a real container. Found and fixed by
+  actually building the image fresh and running it, not just reasoning
+  through the dependency graph — added both to the `[train]` extra and
+  re-validated with a real download+convert run (2,719 images, matching
+  the earlier manually-tested count) confirming data now actually lands on
+  the host via the volume mount.

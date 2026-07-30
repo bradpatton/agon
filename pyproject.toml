@@ -53,6 +53,16 @@ train = [
     # has them from the start instead of surprising a real run.
     "onnx>=1.12",
     "onnxslim>=0.1.82",
+    # scripts/download_soccernet_gsr.py (SN-GSR-2025) and
+    # scripts/download_soccernet_legacy.py (Tracking/Calibration/Re-ID/
+    # Jersey-2023) -- both lazy-import these with a friendly error message,
+    # but neither was ever actually declared as a dependency, so a fresh
+    # `uv sync --extra train` (e.g. building the Docker image) never
+    # installed them and every prepare_training_data.py source failed
+    # inside a real container despite working on dev machines that had
+    # them installed manually into a throwaway venv.
+    "huggingface_hub>=0.24",
+    "SoccerNet>=0.1.55",
 ]
 # scripts/download_assets.py only -- not needed if you supply your own
 # model checkpoint and footage.
