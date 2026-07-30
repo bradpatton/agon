@@ -162,3 +162,11 @@ validating end-to-end against real footage:
   re-validated with a real download+convert run (2,719 images, matching
   the earlier manually-tested count) confirming data now actually lands on
   the host via the volume mount.
+- `docs/TRAINING.md`'s commands assumed a bash/zsh shell (`$(pwd)`, `\`
+  line continuation) with no mention of Windows — hit for real on an
+  actual ML machine running Command Prompt, where `$(pwd)` isn't expanded
+  at all and Docker fails with `includes invalid characters for a local
+  volume name`. Added a shell-substitution table (`%cd%`/`^` for
+  `cmd.exe`, `${PWD}`/backtick for PowerShell) and a Windows-specific GPU
+  passthrough note (needs Docker Desktop's WSL2 backend with Linux
+  containers, not Windows-containers mode).

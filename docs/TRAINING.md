@@ -27,6 +27,39 @@ all` fails outright, before any Python runs, if these aren't in place):
   pulls in the full CUDA toolkit as dependencies — cuBLAS, cuDNN, NCCL,
   etc.) — separate from the ~20GB+ Step 3 budgets for training data.
 
+**On Windows, read this first.** Every command below is written for
+bash/zsh (macOS/Linux, or Git Bash on Windows). If your ML machine's
+terminal is **Command Prompt (`cmd.exe`)** or **PowerShell**, `$(pwd)` is
+not valid syntax there — `cmd.exe` doesn't expand it at all and passes the
+literal text `$(pwd)/data` to Docker, which then fails with `includes
+invalid characters for a local volume name` (a real error hit and fixed
+while writing this guide, not a hypothetical). Two substitutions to make
+throughout every command below that uses `-v "$(pwd)/...`:
+
+| Shell | Current directory | Line continuation |
+|---|---|---|
+| bash/zsh (this guide's default) | `$(pwd)` | `\` |
+| Command Prompt | `%cd%` | `^` |
+| PowerShell | `${PWD}` | `` ` `` (backtick) |
+
+Example — Step 1's build command needs no change (no volume mount), but
+any later command like `docker run --rm -v "$(pwd)/data:/app/data" ...`
+becomes, on Command Prompt:
+```cmd
+docker run --rm -v "%cd%/data:/app/data" -w /app agon:train python scripts/prepare_training_data.py --split train valid
+```
+When in doubt, sidestep the substitution entirely and hardcode the
+absolute path instead (works identically in every shell):
+```
+docker run --rm -v "C:/full/path/to/agon/data:/app/data" -w /app agon:train python scripts/prepare_training_data.py --split train valid
+```
+Also worth checking on Windows specifically: GPU passthrough (`--gpus
+all`, Step 2) needs Docker Desktop's **WSL2 backend** with Linux containers
+— Windows-containers mode doesn't support it. If Step 2 fails outright
+(not just prints `False`), confirm Docker Desktop is set to Linux
+containers with the WSL2 engine before chasing the NVIDIA Container
+Toolkit steps above, which target Linux hosts specifically.
+
 ## 1. Get the code and build the image
 
 ```bash
