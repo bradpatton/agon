@@ -252,7 +252,7 @@ docker build -t agon:train .
 docker run --rm -v "$(pwd)/input_videos:/data/input_videos:ro" \
   -v "$(pwd)/models:/data/models:ro" -v "$(pwd)/configs:/data/configs:ro" \
   -v "$(pwd)/output:/data/output" -w /data agon:train \
-  --input input_videos/your_clip.mp4 --model models/best.pt \
+  agon --input input_videos/your_clip.mp4 --model models/best.pt \
   --calibration configs/calibration/your_calibration.json
 ```
 

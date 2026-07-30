@@ -133,3 +133,20 @@ validating end-to-end against real footage:
   wrongly documented as broken — they were tested with the wrong password
   (a personal NDA video-download password, not the generic public one
   these specific datasets actually use); re-tested and confirmed working.
+- `docs/TRAINING.md`'s Docker volume mounts didn't match where the scripts
+  actually write: Step 3 mounted `/data` but `prepare_training_data.py`
+  writes under `/app/data` (relative to its own location in the image), so
+  downloaded/converted data never left the container and was lost on
+  `--rm`; Step 4 didn't override `train_detector.py`/
+  `train_jersey_classifier.py`'s default `--project runs/train` (also not
+  under any mounted volume), so a real training run would complete with
+  correct metrics and then lose every weight file the same way. Both fixed
+  by mounting `/app/data` and adding an explicit `--project
+  /app/models/runs/train`. Also added the previously-undocumented
+  prerequisite that `--gpus all` needs the NVIDIA Container Toolkit
+  installed and Docker configured for it beforehand — without it the
+  command fails outright, not just falls back to CPU.
+- `README.md`'s Docker development example was missing the `agon` command
+  name — since the image has no `ENTRYPOINT`, `docker run <image> --input
+  ...` tried to exec `--input` itself as the container's process and failed
+  immediately.

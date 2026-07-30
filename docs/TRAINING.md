@@ -11,6 +11,22 @@ passthrough via `--gpus all` has not been run against real GPU hardware
 while building this — no GPU was available to test it. **Step 2 is exactly
 that check** — run it first, don't skip it.
 
+**Prerequisites on the ML machine, before Step 1** (not optional — `--gpus
+all` fails outright, before any Python runs, if these aren't in place):
+- Docker Engine 19.03+ (for the `--gpus` flag itself).
+- A current NVIDIA driver (CUDA 13-compatible — this image's `torch` build
+  bundles its own CUDA 13 runtime, but still needs a host driver new enough
+  to support it; an older driver already on the machine may need updating).
+- The [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)
+  installed **and** the Docker daemon configured for it (`sudo nvidia-ctk
+  runtime configure --runtime=docker && sudo systemctl restart docker` on
+  most Linux distros) — without this, `docker run --gpus all` errors
+  immediately (`could not select device driver` / `unknown or invalid
+  runtime name: nvidia`), it does not just fall back to CPU.
+- A few GB of free disk for the image build alone (`torch`'s Linux wheel
+  pulls in the full CUDA toolkit as dependencies — cuBLAS, cuDNN, NCCL,
+  etc.) — separate from the ~20GB+ Step 3 budgets for training data.
+
 ## 1. Get the code and build the image
 
 ```bash
@@ -40,9 +56,18 @@ One command — downloads from every SoccerNet source this project can
 currently train from, extracts, and converts to training format:
 
 ```bash
-docker run --rm -v "$(pwd)/data:/data" -w /app agon:train \
+docker run --rm -v "$(pwd)/data:/app/data" -w /app agon:train \
   python scripts/prepare_training_data.py --split train valid
 ```
+
+**Mount at `/app/data`, not `/data`.** `prepare_training_data.py` resolves
+its output relative to its own location inside the image (`/app`), so it
+always writes under `/app/data/...` regardless of what you mount — mounting
+anywhere else (including plain `/data`) means the container silently
+downloads and converts everything into its own throwaway filesystem, and
+all of it is gone the moment `--rm` removes the container. This is a real
+mistake this guide made in an earlier draft; if a training run mysteriously
+can't find its dataset in Step 4, this mismatch is the first thing to check.
 
 Three sources, combined into the same output directories regardless of
 which one a given example came from:
@@ -68,8 +93,8 @@ checking HTTP status. See `download_soccernet_legacy.py`'s docstring.
   `HF_TOKEN` in your environment for faster/more reliable HuggingFace
   downloads.
 - Idempotent — safe to re-run, skips what's already done.
-- `-v "$(pwd)/data:/data"` is required — without it, downloaded data dies
-  with the container instead of persisting.
+- `-v "$(pwd)/data:/app/data"` is required — without it, downloaded data
+  dies with the container instead of persisting.
 - `--sources gsr` (or `legacy-calibration`/`legacy-jersey`) to pull just
   one. `--skip-jersey` skips GSR's jersey conversion specifically. `--split
   test` for a small validation pass across all three before committing to
@@ -90,23 +115,38 @@ checking HTTP status. See `download_soccernet_legacy.py`'s docstring.
 **Detection:**
 ```bash
 docker run --rm --gpus all \
-  -v "$(pwd)/data:/data" -v "$(pwd)/models:/app/models" \
+  -v "$(pwd)/data:/app/data" -v "$(pwd)/models:/app/models" \
   -w /app agon:train \
   python scripts/train_detector.py \
-    --data /data/soccernet_yolo/dataset.yaml \
+    --data /app/data/soccernet_yolo/dataset.yaml \
+    --project /app/models/runs/train \
     --imgsz 960 --epochs 50 --batch 32 --device 0,1,2
 ```
 
 **Jersey number classifier:**
 ```bash
 docker run --rm --gpus all \
-  -v "$(pwd)/data:/data" -v "$(pwd)/models:/app/models" \
+  -v "$(pwd)/data:/app/data" -v "$(pwd)/models:/app/models" \
   -w /app agon:train \
   python scripts/train_jersey_classifier.py \
-    --data /data/soccernet_jersey --epochs 30 --device 0,1,2
+    --data /app/data/soccernet_jersey \
+    --project /app/models/runs/train \
+    --epochs 30 --device 0,1,2
 ```
 
-- `--device 0,1,2` uses all 3 GPUs (drop it to auto-select one).
+**`--project /app/models/runs/train` is required, not optional.** Both
+scripts default `--project` to `runs/train`, a path relative to the
+container's working directory (`/app`) — that's `/app/runs/train`, which
+isn't under either mounted volume. Without overriding it explicitly, a
+training run completes successfully, prints real metrics, and then loses
+every weight file the moment `--rm` removes the container. `--base-model
+models/yolo11n.pt` (detection's default) is fine as-is — it's already
+relative to the mounted `/app/models`.
+
+- `--device 0,1,2` uses all 3 GPUs — check `nvidia-smi` on the host first
+  and adjust to however many GPUs this machine actually has; requesting a
+  device index that doesn't exist fails the run. Drop the flag entirely to
+  auto-select one.
 - `--imgsz 960`+ matters specifically for the ball — it's a tiny object in
   broadcast frames, and this project's own runs (a 5-epoch/CPU/small-subset
   proof of concept) already show ball detection as the clear weak point
@@ -121,8 +161,9 @@ docker run --rm --gpus all \
 
 ## 5. Deploy the trained model
 
-Weights land in `models/` on the host (via the volume mount): `best.pt` and
-`best.onnx`, under `runs/train/<name>/weights/`.
+Weights land in `models/` on the host (via the volume mount, given the
+`--project /app/models/runs/train` override from Step 4): `best.pt` and
+`best.onnx`, under `models/runs/train/<name>/weights/`.
 
 **Set `detection_imgsz` to match whatever `--imgsz` you trained with.** A
 mismatch fails loudly (a clear onnxruntime shape error), not silently — but
@@ -155,6 +196,22 @@ agon --input <video> --model models/best.onnx \
 
 ## Troubleshooting
 
+- **`docker: Error response from daemon: could not select device driver`**
+  or **`unknown or invalid runtime name: nvidia`** on `docker run --gpus
+  all`: the NVIDIA Container Toolkit isn't installed/configured on this
+  host — see Prerequisites above. This is a host setup issue, not something
+  wrong with the image.
+- **Step 4 fails immediately with the dataset config not found**
+  (`--data /app/data/soccernet_yolo/dataset.yaml`): almost always means
+  Step 3 was run with the wrong mount (`/data` instead of `/app/data`) and
+  its output never left the container. Re-run Step 3 with the corrected
+  mount and confirm `data/soccernet_yolo/dataset.yaml` actually exists on
+  the *host* before moving on.
+- **Training finishes with real metrics printed, but `models/runs/train/`
+  is empty afterward**: `--project` wasn't set (or was set to something not
+  under `/app/models`) — see the note under Step 4. The run itself worked;
+  its output was just written outside any mounted volume and discarded with
+  the container.
 - **`onnxruntime...InvalidArgument: Got invalid dimensions`** at inference:
   `detection_imgsz` doesn't match the ONNX export resolution — fix per Step 5.
 - **Stale-cache crash** (`IndexError: list index out of range`) after
