@@ -195,3 +195,11 @@ validating end-to-end against real footage:
   PyTorch DataLoader workers passing real image batches between
   processes. `--ipc=host` (PyTorch's own recommended fix) added to both
   training commands in `docs/TRAINING.md`.
+- Same class of bug again, this time with batch size: the documented
+  `--batch 32` example OOM'd for real (`torch.AcceleratorError: CUDA
+  error: out of memory`) on a GPU with less VRAM than whatever card 32 was
+  sized for. `train_detector.py`/`train_jersey_classifier.py`'s `--batch`
+  default changed from a fixed number to `-1`, which triggers Ultralytics'
+  AutoBatch (a few trial passes pick the largest batch that actually fits
+  in available VRAM) instead of guessing a number that happens to work on
+  one card and not another.

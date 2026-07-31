@@ -57,7 +57,15 @@ def parse_args() -> argparse.Namespace:
         "(1280 is ~4x the compute of 640). Default 640 matches the current model.",
     )
     parser.add_argument("--epochs", type=int, default=50)
-    parser.add_argument("--batch", type=int, default=16)
+    parser.add_argument(
+        "--batch",
+        type=int,
+        default=-1,
+        help="Fixed batch size, or -1 (default) for Ultralytics' AutoBatch: a few trial "
+        "passes pick the largest batch that fits in whatever VRAM is actually available, "
+        "rather than a fixed guess that OOMs on smaller GPUs or wastes memory on larger "
+        "ones. Set a fixed value if you want reproducible batch sizes across runs.",
+    )
     parser.add_argument(
         "--device",
         type=str,

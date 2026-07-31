@@ -52,7 +52,13 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--imgsz", type=int, default=128, help="Crop input resolution, square.")
     parser.add_argument("--epochs", type=int, default=30)
-    parser.add_argument("--batch", type=int, default=64)
+    parser.add_argument(
+        "--batch",
+        type=int,
+        default=-1,
+        help="Fixed batch size, or -1 (default) for Ultralytics' AutoBatch: picks the "
+        "largest batch that fits in whatever VRAM is actually available.",
+    )
     parser.add_argument(
         "--device",
         type=str,

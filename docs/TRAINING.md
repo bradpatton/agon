@@ -153,7 +153,7 @@ docker run --rm --gpus all --ipc=host \
   python scripts/train_detector.py \
     --data /app/data/soccernet_yolo/dataset.yaml \
     --project /app/models/runs/train \
-    --imgsz 960 --epochs 50 --batch 32
+    --imgsz 960 --epochs 50
 ```
 
 **Jersey number classifier:**
@@ -194,6 +194,13 @@ relative to the mounted `/app/models`.
   ("invalid CUDA device" — index 1/2 didn't exist). Pass `--device`
   explicitly only if you want to *restrict* training to a subset, e.g.
   `--device 0` to use just the first GPU.
+- **Batch size is also automatic** (`--batch -1`, the default) — Ultralytics'
+  AutoBatch runs a few trial passes and picks the largest batch that
+  actually fits in whatever VRAM this GPU has. A hardcoded `--batch 32`
+  was here in an earlier draft and OOM'd (`torch.AcceleratorError: CUDA
+  error: out of memory`) on a real GPU with less VRAM than whatever card
+  32 was sized for. Pass `--batch <N>` explicitly if you want a fixed,
+  reproducible batch size across runs instead.
 - `--imgsz 960`+ matters specifically for the ball — it's a tiny object in
   broadcast frames, and this project's own runs (a 5-epoch/CPU/small-subset
   proof of concept) already show ball detection as the clear weak point
@@ -259,6 +266,11 @@ agon --input <video> --model models/best.onnx \
   under `/app/models`) — see the note under Step 4. The run itself worked;
   its output was just written outside any mounted volume and discarded with
   the container.
+- **`torch.AcceleratorError: CUDA error: out of memory`**: the batch size
+  (and/or `--imgsz`) is too large for this GPU's VRAM. Default `--batch -1`
+  (AutoBatch) should avoid this on its own — if you still hit it, you've
+  likely overridden `--batch` with a fixed value; drop the override, or
+  lower `--imgsz` if even AutoBatch's smallest batch doesn't fit.
 - **`RuntimeError: unable to allocate shared memory(shm)... No space left
   on device`** partway through a training run: not actual disk space —
   Docker's default 64MB `/dev/shm` is too small for PyTorch's DataLoader
