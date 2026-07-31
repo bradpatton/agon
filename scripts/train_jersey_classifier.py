@@ -67,6 +67,13 @@ def parse_args() -> argparse.Namespace:
         "use every visible CUDA GPU (see _auto_device) -- pass this explicitly to override, "
         "e.g. to pin to a subset.",
     )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=None,
+        help="DataLoader worker processes (ultralytics default: 8). Lower on a small-VRAM "
+        "GPU that OOMs partway through training -- see train_detector.py's docstring.",
+    )
     parser.add_argument("--project", type=Path, default=Path("runs/train"))
     parser.add_argument("--name", type=str, default="jersey")
     return parser.parse_args()
@@ -112,6 +119,8 @@ def main() -> None:
     if args.device is None and device is not None:
         print(f"Auto-detected {device.count(',') + 1} GPUs, using device={device}")
 
+    workers = args.workers if args.workers is not None else 8  # ultralytics' own default
+
     model = YOLO(args.base_model)
     results = model.train(
         data=str(args.data.resolve()),
@@ -119,6 +128,7 @@ def main() -> None:
         epochs=args.epochs,
         batch=args.batch,
         device=device,
+        workers=workers,
         project=str(args.project),
         name=args.name,
     )

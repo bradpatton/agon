@@ -203,3 +203,11 @@ validating end-to-end against real footage:
   AutoBatch (a few trial passes pick the largest batch that actually fits
   in available VRAM) instead of guessing a number that happens to work on
   one card and not another.
+- AutoBatch alone wasn't enough on a small-VRAM GPU -- training ran
+  cleanly for ~15 real iterations (memory climbing) then OOM'd in the
+  DataLoader's pin-memory step, a fragmentation/worst-case-batch pattern
+  rather than "never fits." Added `--workers` to both training scripts
+  (fewer DataLoader workers = less pinned memory held for prefetching)
+  and documented `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`
+  (PyTorch's own fix for this exact symptom) in `docs/TRAINING.md`'s
+  training command and troubleshooting section.

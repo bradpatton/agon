@@ -74,6 +74,16 @@ def parse_args() -> argparse.Namespace:
         "use every visible CUDA GPU (see _auto_device) -- pass this explicitly to override, "
         "e.g. to pin to a subset.",
     )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=None,
+        help="DataLoader worker processes (ultralytics default: 8). Each worker holds its "
+        "own prefetched/pinned-memory batch, so on a small-VRAM GPU that OOMs partway "
+        "through an epoch (not on the first batch -- a fragmentation/prefetch-pressure "
+        "symptom, not a 'too big to ever fit' one), lowering this is a real lever "
+        "alongside --batch. None = ultralytics' own default.",
+    )
     parser.add_argument("--project", type=Path, default=Path("runs/train"))
     parser.add_argument("--name", type=str, default="soccernet")
     parser.add_argument(
@@ -139,6 +149,7 @@ def main() -> None:
     device = args.device if args.device is not None else _auto_device()
     if args.device is None and device is not None:
         print(f"Auto-detected {device.count(',') + 1} GPUs, using device={device}")
+    workers = args.workers if args.workers is not None else 8  # ultralytics' own default
 
     model = YOLO(str(args.base_model))
     results = model.train(
@@ -147,6 +158,7 @@ def main() -> None:
         epochs=args.epochs,
         batch=args.batch,
         device=device,
+        workers=workers,
         project=str(args.project),
         name=args.name,
     )

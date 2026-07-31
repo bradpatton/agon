@@ -148,6 +148,7 @@ checking HTTP status. See `download_soccernet_legacy.py`'s docstring.
 **Detection:**
 ```bash
 docker run --rm --gpus all --ipc=host \
+  -e PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
   -v "$(pwd)/data:/app/data" -v "$(pwd)/models:/app/models" \
   -w /app agon:train \
   python scripts/train_detector.py \
@@ -201,6 +202,25 @@ relative to the mounted `/app/models`.
   error: out of memory`) on a real GPU with less VRAM than whatever card
   32 was sized for. Pass `--batch <N>` explicitly if you want a fixed,
   reproducible batch size across runs instead.
+- **On a small-VRAM GPU, AutoBatch can still OOM a few iterations in**
+  (not on the first batch) — hit for real: training ran cleanly for ~15
+  iterations, memory climbing, then died in the DataLoader's pin-memory
+  step. That pattern points at CUDA memory fragmentation or worst-case
+  batches (soccer frames vary a lot in player-instance count, so a
+  higher-instance batch costs more than whatever AutoBatch benchmarked)
+  rather than "never enough VRAM at all." Three levers, roughly in order
+  of how non-invasive they are:
+  1. `-e PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` (already in the
+     command above) — PyTorch's own fix for exactly this
+     works-for-a-while-then-OOMs fragmentation pattern.
+  2. `--workers <N>` (e.g. `--workers 2`, default is Ultralytics' own `8`)
+     — fewer DataLoader worker processes means less pinned memory held
+     for prefetching at once.
+  3. A smaller fixed `--batch <N>` instead of AutoBatch, or a lower
+     `--imgsz` (960 costs ~2.25x the memory of 640) if the GPU genuinely
+     doesn't have the VRAM for 960px training even with 1-2 applied —
+     a real tradeoff against small-object (ball) detection quality, not
+     a free fix.
 - `--imgsz 960`+ matters specifically for the ball — it's a tiny object in
   broadcast frames, and this project's own runs (a 5-epoch/CPU/small-subset
   proof of concept) already show ball detection as the clear weak point
@@ -266,11 +286,15 @@ agon --input <video> --model models/best.onnx \
   under `/app/models`) — see the note under Step 4. The run itself worked;
   its output was just written outside any mounted volume and discarded with
   the container.
-- **`torch.AcceleratorError: CUDA error: out of memory`**: the batch size
-  (and/or `--imgsz`) is too large for this GPU's VRAM. Default `--batch -1`
-  (AutoBatch) should avoid this on its own — if you still hit it, you've
-  likely overridden `--batch` with a fixed value; drop the override, or
-  lower `--imgsz` if even AutoBatch's smallest batch doesn't fit.
+- **`torch.AcceleratorError: CUDA error: out of memory`** immediately /
+  within the first batch: the batch size (and/or `--imgsz`) is too large
+  for this GPU's VRAM. Default `--batch -1` (AutoBatch) should avoid this
+  on its own — if you still hit it, you've likely overridden `--batch`
+  with a fixed value; drop the override.
+- **Same error, but a number of iterations into training, not the first
+  batch**: see the "small-VRAM GPU" bullet under Step 4 — try
+  `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`, then `--workers`,
+  then a smaller fixed `--batch`/`--imgsz`, in that order.
 - **`RuntimeError: unable to allocate shared memory(shm)... No space left
   on device`** partway through a training run: not actual disk space —
   Docker's default 64MB `/dev/shm` is too small for PyTorch's DataLoader
