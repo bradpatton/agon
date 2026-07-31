@@ -83,8 +83,19 @@ def main() -> None:
         print(f"Dataset config not found: {args.data}", file=sys.stderr)
         sys.exit(1)
     if not args.base_model.exists():
-        print(f"Base checkpoint not found: {args.base_model}", file=sys.stderr)
-        sys.exit(1)
+        # Not a hard failure: a recognized Ultralytics checkpoint name (e.g.
+        # yolo11n.pt) auto-downloads to this exact path on first use,
+        # regardless of the directory prefix -- that's the documented
+        # first-run behavior (see docs/TRAINING.md), and exiting here would
+        # silently prevent it from ever happening.
+        print(
+            f"{args.base_model} not found locally -- if this is a recognized "
+            f"Ultralytics checkpoint name (e.g. yolo11n.pt), it will be "
+            f"downloaded automatically (needs internet access). If it's meant "
+            f"to be a specific fine-tuned checkpoint you already have, double "
+            f"check --base-model.",
+            file=sys.stderr,
+        )
 
     try:
         from ultralytics import YOLO

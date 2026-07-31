@@ -170,3 +170,12 @@ validating end-to-end against real footage:
   `cmd.exe`, `${PWD}`/backtick for PowerShell) and a Windows-specific GPU
   passthrough note (needs Docker Desktop's WSL2 backend with Linux
   containers, not Windows-containers mode).
+- `train_detector.py` hard-exited if `--base-model` (default
+  `models/yolo11n.pt`) didn't already exist locally -- hit for real on an
+  ML machine with a freshly-mounted, empty `models/` directory. This
+  directly contradicted `docs/TRAINING.md`'s own claim that the base
+  checkpoint "auto-downloads on first training run": Ultralytics does
+  auto-download a recognized checkpoint name to the exact given path, but
+  only if the script ever reaches `YOLO(...)` -- the pre-check was exiting
+  before that could happen. Changed to a warning instead of a hard exit,
+  restoring the documented self-heal behavior.
