@@ -179,3 +179,12 @@ validating end-to-end against real footage:
   only if the script ever reaches `YOLO(...)` -- the pre-check was exiting
   before that could happen. Changed to a warning instead of a hard exit,
   restoring the documented self-heal behavior.
+- `docs/TRAINING.md`'s example training commands hardcoded `--device
+  0,1,2` -- hit for real on an ML machine with only 1 GPU configured
+  ("invalid CUDA device"). `train_detector.py`/`train_jersey_classifier.py`
+  now auto-detect every visible CUDA GPU (`torch.cuda.device_count()`) and
+  use all of them by default, so the command doesn't need editing as GPUs
+  are added or removed; `--device` remains available to explicitly
+  restrict to a subset. Verified the detection logic's branches (0/1/N
+  GPUs) with a mocked `torch.cuda` since no real multi-GPU hardware is
+  available in this environment.

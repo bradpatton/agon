@@ -153,7 +153,7 @@ docker run --rm --gpus all \
   python scripts/train_detector.py \
     --data /app/data/soccernet_yolo/dataset.yaml \
     --project /app/models/runs/train \
-    --imgsz 960 --epochs 50 --batch 32 --device 0,1,2
+    --imgsz 960 --epochs 50 --batch 32
 ```
 
 **Jersey number classifier:**
@@ -164,7 +164,7 @@ docker run --rm --gpus all \
   python scripts/train_jersey_classifier.py \
     --data /app/data/soccernet_jersey \
     --project /app/models/runs/train \
-    --epochs 30 --device 0,1,2
+    --epochs 30
 ```
 
 **`--project /app/models/runs/train` is required, not optional.** Both
@@ -176,10 +176,14 @@ every weight file the moment `--rm` removes the container. `--base-model
 models/yolo11n.pt` (detection's default) is fine as-is — it's already
 relative to the mounted `/app/models`.
 
-- `--device 0,1,2` uses all 3 GPUs — check `nvidia-smi` on the host first
-  and adjust to however many GPUs this machine actually has; requesting a
-  device index that doesn't exist fails the run. Drop the flag entirely to
-  auto-select one.
+- **GPU selection is automatic** — both scripts detect every visible CUDA
+  GPU (`torch.cuda.device_count()`) and use all of them by default, so the
+  command above doesn't need editing as GPUs are added or removed from the
+  machine. A hardcoded `--device 0,1,2` was here in an earlier draft of
+  this guide and broke on a real machine with only 1 GPU configured
+  ("invalid CUDA device" — index 1/2 didn't exist). Pass `--device`
+  explicitly only if you want to *restrict* training to a subset, e.g.
+  `--device 0` to use just the first GPU.
 - `--imgsz 960`+ matters specifically for the ball — it's a tiny object in
   broadcast frames, and this project's own runs (a 5-epoch/CPU/small-subset
   proof of concept) already show ball detection as the clear weak point

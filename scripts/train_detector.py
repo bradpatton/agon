@@ -62,7 +62,9 @@ def parse_args() -> argparse.Namespace:
         "--device",
         type=str,
         default=None,
-        help="'cuda', 'cuda:0,1,2' for multi-GPU, 'mps', or 'cpu'. None = ultralytics auto-detect.",
+        help="'cuda', '0,1,2' for specific GPUs, 'mps', or 'cpu'. Default: auto-detect and "
+        "use every visible CUDA GPU (see _auto_device) -- pass this explicitly to override, "
+        "e.g. to pin to a subset.",
     )
     parser.add_argument("--project", type=Path, default=Path("runs/train"))
     parser.add_argument("--name", type=str, default="soccernet")
@@ -74,6 +76,26 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--no-export-onnx", dest="export_onnx", action="store_false")
     return parser.parse_args()
+
+
+def _auto_device() -> str | None:
+    """Comma-separated indices of every visible CUDA GPU (e.g. "0,1,2"), so
+    a training command doesn't need editing every time a GPU is added or
+    removed from the machine -- a real, hit-in-practice annoyance with a
+    hardcoded --device list. Returns None (ultralytics' own auto-detect,
+    picks a single GPU or CPU) when there's zero or one GPU, since a
+    comma-joined single index isn't meaningfully different from letting
+    ultralytics choose itself."""
+    try:
+        import torch
+    except ImportError:
+        return None
+    if not torch.cuda.is_available():
+        return None
+    count = torch.cuda.device_count()
+    if count <= 1:
+        return None
+    return ",".join(str(i) for i in range(count))
 
 
 def main() -> None:
@@ -106,13 +128,17 @@ def main() -> None:
         )
         sys.exit(1)
 
+    device = args.device if args.device is not None else _auto_device()
+    if args.device is None and device is not None:
+        print(f"Auto-detected {device.count(',') + 1} GPUs, using device={device}")
+
     model = YOLO(str(args.base_model))
     results = model.train(
         data=str(args.data),
         imgsz=args.imgsz,
         epochs=args.epochs,
         batch=args.batch,
-        device=args.device,
+        device=device,
         project=str(args.project),
         name=args.name,
     )
