@@ -147,7 +147,7 @@ checking HTTP status. See `download_soccernet_legacy.py`'s docstring.
 
 **Detection:**
 ```bash
-docker run --rm --gpus all \
+docker run --rm --gpus all --ipc=host \
   -v "$(pwd)/data:/app/data" -v "$(pwd)/models:/app/models" \
   -w /app agon:train \
   python scripts/train_detector.py \
@@ -158,7 +158,7 @@ docker run --rm --gpus all \
 
 **Jersey number classifier:**
 ```bash
-docker run --rm --gpus all \
+docker run --rm --gpus all --ipc=host \
   -v "$(pwd)/data:/app/data" -v "$(pwd)/models:/app/models" \
   -w /app agon:train \
   python scripts/train_jersey_classifier.py \
@@ -166,6 +166,16 @@ docker run --rm --gpus all \
     --project /app/models/runs/train \
     --epochs 30
 ```
+
+**`--ipc=host` is required, not optional.** PyTorch's DataLoader passes
+batches between worker processes through `/dev/shm` (shared memory) —
+Docker defaults that to a tiny 64MB, nowhere near enough for real image
+batches, and training crashes partway in with `RuntimeError: unable to
+allocate shared memory(shm)... No space left on device`, which reads like
+a disk-space problem but isn't. `--ipc=host` shares the host's IPC
+namespace (PyTorch's own recommended fix) rather than trying to guess a
+`--shm-size` value that's enough for every batch size/resolution
+combination.
 
 **`--project /app/models/runs/train` is required, not optional.** Both
 scripts default `--project` to `runs/train`, a path relative to the
@@ -249,6 +259,11 @@ agon --input <video> --model models/best.onnx \
   under `/app/models`) — see the note under Step 4. The run itself worked;
   its output was just written outside any mounted volume and discarded with
   the container.
+- **`RuntimeError: unable to allocate shared memory(shm)... No space left
+  on device`** partway through a training run: not actual disk space —
+  Docker's default 64MB `/dev/shm` is too small for PyTorch's DataLoader
+  workers. Add `--ipc=host` to the `docker run` command (Step 4 already
+  has it; add it too if you've customized the command).
 - **`onnxruntime...InvalidArgument: Got invalid dimensions`** at inference:
   `detection_imgsz` doesn't match the ONNX export resolution — fix per Step 5.
 - **Stale-cache crash** (`IndexError: list index out of range`) after

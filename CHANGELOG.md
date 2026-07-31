@@ -188,3 +188,10 @@ validating end-to-end against real footage:
   restrict to a subset. Verified the detection logic's branches (0/1/N
   GPUs) with a mocked `torch.cuda` since no real multi-GPU hardware is
   available in this environment.
+- Training `docker run` commands were missing `--ipc=host` -- hit for real
+  on an ML machine as `RuntimeError: unable to allocate shared memory
+  (shm)... No space left on device`, which reads like a disk problem but
+  is actually Docker's default 64MB `/dev/shm` being far too small for
+  PyTorch DataLoader workers passing real image batches between
+  processes. `--ipc=host` (PyTorch's own recommended fix) added to both
+  training commands in `docs/TRAINING.md`.
