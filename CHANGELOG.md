@@ -218,5 +218,14 @@ validating end-to-end against real footage:
   detect this case and fall back to a conservative explicit batch (8 per
   GPU) automatically instead of crashing, printing a note when the
   fallback is used. Verified the fallback logic's branches (1 GPU, 2/3
-  GPUs, explicit override) directly since no real multi-GPU hardware is
-  available in this environment.
+  GPUs, explicit override) directly since no real multi-GPU hardware was
+  available in this environment at the time.
+
+### Verified
+- GPU passthrough (`docker run --gpus all`), confirmed end-to-end for the
+  first time against real hardware (2x RTX 3090, Ubuntu) after carrying an
+  "unverified, no GPU available" caveat through every prior phase of this
+  project. `torch.cuda.is_available()` returns `True` with both GPUs
+  correctly enumerated inside the `agon:train` container. Updated
+  `Dockerfile`'s header comment and `docs/TRAINING.md`'s opening note, and
+  removed the corresponding "Not yet done" bullet from `README.md`.

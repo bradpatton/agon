@@ -191,12 +191,6 @@ imgsz=640, dynamic=False)`.
   [`docs/TRAINING.md`](docs/TRAINING.md)); the export schema has
   `jersey_number` ready to receive it, but no code path loads a trained
   classifier and calls it during a pipeline run yet.
-- **GPU passthrough for `Dockerfile`, empirically unverified.** The image's
-  `torch` wheel has real CUDA support (confirmed via its locked
-  dependencies), and `docker run --gpus all` *should* work on a real NVIDIA
-  host — but this was built with no GPU available to actually test that
-  claim against. See [`docs/TRAINING.md`](docs/TRAINING.md)'s Step 2 for
-  the exact command to verify this the moment you have GPU hardware.
 
 ## Training / fine-tuning
 

@@ -5,11 +5,13 @@ number classifier on SoccerNet data, using the `agon:train`
 Docker image, on a separate GPU machine (training is CPU-impractical — see
 the project plan).
 
-**Before you start, know this**: the image resolves to a real CUDA-enabled
-`torch` build (`torch.version.cuda == "13.0"`, confirmed), but GPU
-passthrough via `--gpus all` has not been run against real GPU hardware
-while building this — no GPU was available to test it. **Step 2 is exactly
-that check** — run it first, don't skip it.
+**GPU passthrough is confirmed working end-to-end** (2026-08-01, against a
+real 2x RTX 3090 Ubuntu machine — `torch.cuda.is_available()` returned
+`True` with both GPUs correctly enumerated inside the container). Earlier
+drafts of this guide carried this as an unverified assumption; it no
+longer is. **Step 2 is still worth running on any new machine** — it's
+the fastest way to catch a host-level GPU/driver/toolkit misconfiguration
+before spending time on data prep.
 
 **Prerequisites on the ML machine, before Step 1** (not optional — `--gpus
 all` fails outright, before any Python runs, if these aren't in place):

@@ -15,11 +15,10 @@
 # dependencies, confirmed in uv.lock) -- the modern PyPI-wheel pattern of
 # not needing a system-wide CUDA toolkit install, just a compatible host
 # NVIDIA driver + the NVIDIA Container Toolkit for GPU passthrough
-# (`docker run --gpus all`). Not empirically verified end-to-end on real
-# GPU hardware in this repo yet (no GPU available in the environment this
-# was built in) -- see docs/TRAINING.md for the exact command to verify
-# `torch.cuda.is_available()` the moment you have GPU hardware to test on,
-# and what it means if that comes back False.
+# (`docker run --gpus all`). Confirmed working end-to-end on real GPU
+# hardware (2026-08-01, 2x RTX 3090, Ubuntu) -- see docs/TRAINING.md for
+# the verification command and troubleshooting if a *different* machine's
+# GPU doesn't show up the same way.
 FROM python:3.11-slim
 
 # libgl1/libglib2.0-0: runtime deps for opencv-python's video/image codecs.
