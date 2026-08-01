@@ -221,6 +221,16 @@ validating end-to-end against real footage:
   GPUs, explicit override) directly since no real multi-GPU hardware was
   available in this environment at the time.
 
+### Added
+- `train_detector.py --resume <path/to/last.pt>`: resumes an interrupted
+  training run (a real power outage killed a run mid-epoch-8 on the ML
+  machine) from Ultralytics' own checkpoint, picking up at the next epoch
+  using the checkpoint's saved training args rather than restarting from
+  scratch. The ONNX-export step now reads the actual trained `imgsz` back
+  off the model's trainer args instead of trusting `--imgsz` on the CLI,
+  since that flag is meaningless (still at its argparse default) in
+  `--resume` mode.
+
 ### Verified
 - GPU passthrough (`docker run --gpus all`), confirmed end-to-end for the
   first time against real hardware (2x RTX 3090, Ubuntu) after carrying an

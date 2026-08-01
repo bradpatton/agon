@@ -29,6 +29,10 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ultralytics import YOLO
 
 
 def parse_args() -> argparse.Namespace:
@@ -38,8 +42,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--data",
         type=Path,
-        required=True,
-        help="Path to dataset.yaml (written by convert_soccernet_gsr_to_yolo.py).",
+        default=None,
+        help="Path to dataset.yaml (written by convert_soccernet_gsr_to_yolo.py). "
+        "Required unless --resume is given.",
+    )
+    parser.add_argument(
+        "--resume",
+        type=Path,
+        default=None,
+        help="Path to a last.pt checkpoint to resume interrupted training from (e.g. after "
+        "a crash or power loss) -- picks up at the next epoch using that checkpoint's own "
+        "saved training args (data/imgsz/epochs/batch/device/etc.), ignoring every other "
+        "flag below. Ultralytics' own resume mechanism, not a custom one.",
     )
     parser.add_argument(
         "--base-model",
@@ -140,6 +154,28 @@ def _resolve_batch(batch: int, device: str | None) -> int:
 def main() -> None:
     args = parse_args()
 
+    try:
+        from ultralytics import YOLO
+    except ImportError:
+        print(
+            "train_detector.py needs the 'train' extra: pip install 'agon[train]'",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    if args.resume is not None:
+        if not args.resume.exists():
+            print(f"Resume checkpoint not found: {args.resume}", file=sys.stderr)
+            sys.exit(1)
+        print(f"Resuming from {args.resume} (ignoring --data/--imgsz/--batch/etc.)")
+        model = YOLO(str(args.resume))
+        results = model.train(resume=True)
+        _finish(model, results, args.export_onnx)
+        return
+
+    if args.data is None:
+        print("--data is required unless --resume is given.", file=sys.stderr)
+        sys.exit(1)
     if not args.data.exists():
         print(f"Dataset config not found: {args.data}", file=sys.stderr)
         sys.exit(1)
@@ -158,15 +194,6 @@ def main() -> None:
             file=sys.stderr,
         )
 
-    try:
-        from ultralytics import YOLO
-    except ImportError:
-        print(
-            "train_detector.py needs the 'train' extra: pip install 'agon[train]'",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-
     device = args.device if args.device is not None else _auto_device()
     if args.device is None and device is not None:
         print(f"Auto-detected {device.count(',') + 1} GPUs, using device={device}")
@@ -184,19 +211,31 @@ def main() -> None:
         project=str(args.project),
         name=args.name,
     )
+    _finish(model, results, args.export_onnx)
+
+
+def _finish(model: YOLO, results, export_onnx: bool) -> None:
+    """Shared by both the fresh-training and --resume paths. Reads the actual
+    trained imgsz back off the model's own trainer args rather than trusting
+    the CLI's --imgsz, which is meaningless in --resume mode (it's still
+    sitting at its argparse default, not whatever the checkpoint actually
+    trained at)."""
     print(f"\nTraining done. Results/weights under: {results.save_dir}")
 
-    if args.export_onnx:
+    imgsz = model.trainer.args.imgsz
+    if export_onnx:
         best_weights = Path(results.save_dir) / "weights" / "best.pt"
         if not best_weights.exists():
             print(f"Expected best.pt at {best_weights}, skipping ONNX export.", file=sys.stderr)
             return
 
+        from ultralytics import YOLO
+
         trained_model = YOLO(str(best_weights))
-        onnx_path = trained_model.export(format="onnx", imgsz=args.imgsz, dynamic=False)
-        print(f"Exported ONNX ({args.imgsz}x{args.imgsz}): {onnx_path}")
+        onnx_path = trained_model.export(format="onnx", imgsz=imgsz, dynamic=False)
+        print(f"Exported ONNX ({imgsz}x{imgsz}): {onnx_path}")
         print(
-            f"Set PipelineConfig.detection_imgsz={args.imgsz} (or configs/*.yaml's "
+            f"Set PipelineConfig.detection_imgsz={imgsz} (or configs/*.yaml's "
             f"detection_imgsz) to match when running the pipeline with this checkpoint."
         )
 
