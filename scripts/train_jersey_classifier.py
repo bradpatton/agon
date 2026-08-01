@@ -96,6 +96,24 @@ def _auto_device() -> str | None:
     return ",".join(str(i) for i in range(count))
 
 
+def _resolve_batch(batch: int, device: str | None) -> int:
+    """Ultralytics' AutoBatch (batch=-1) doesn't support multi-GPU training
+    at all -- see train_detector.py's docstring for the real error this
+    was confirmed against. Falls back to a conservative explicit batch (8
+    per GPU) only when --batch was left at its auto default and multiple
+    GPUs are in play."""
+    num_gpus = (device.count(",") + 1) if device and "," in device else 1
+    if batch == -1 and num_gpus > 1:
+        fallback = 8 * num_gpus
+        print(
+            f"AutoBatch isn't supported for multi-GPU training -- using a conservative "
+            f"explicit batch={fallback} (8 per GPU x {num_gpus} GPUs). Pass --batch "
+            f"explicitly for a different value."
+        )
+        return fallback
+    return batch
+
+
 def main() -> None:
     args = parse_args()
 
@@ -120,13 +138,14 @@ def main() -> None:
         print(f"Auto-detected {device.count(',') + 1} GPUs, using device={device}")
 
     workers = args.workers if args.workers is not None else 8  # ultralytics' own default
+    batch = _resolve_batch(args.batch, device)
 
     model = YOLO(args.base_model)
     results = model.train(
         data=str(args.data.resolve()),
         imgsz=args.imgsz,
         epochs=args.epochs,
-        batch=args.batch,
+        batch=batch,
         device=device,
         workers=workers,
         project=str(args.project),

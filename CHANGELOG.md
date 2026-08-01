@@ -211,3 +211,12 @@ validating end-to-end against real footage:
   and documented `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`
   (PyTorch's own fix for this exact symptom) in `docs/TRAINING.md`'s
   training command and troubleshooting section.
+- AutoBatch (`--batch -1`) doesn't work at all for multi-GPU training --
+  confirmed via Ultralytics' own error on real 2-GPU hardware (`AutoBatch
+  with batch<1 not supported for Multi-GPU training, please specify a
+  valid batch size multiple of GPU count`). Both training scripts now
+  detect this case and fall back to a conservative explicit batch (8 per
+  GPU) automatically instead of crashing, printing a note when the
+  fallback is used. Verified the fallback logic's branches (1 GPU, 2/3
+  GPUs, explicit override) directly since no real multi-GPU hardware is
+  available in this environment.

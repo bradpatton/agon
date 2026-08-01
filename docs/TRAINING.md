@@ -195,13 +195,22 @@ relative to the mounted `/app/models`.
   ("invalid CUDA device" — index 1/2 didn't exist). Pass `--device`
   explicitly only if you want to *restrict* training to a subset, e.g.
   `--device 0` to use just the first GPU.
-- **Batch size is also automatic** (`--batch -1`, the default) — Ultralytics'
-  AutoBatch runs a few trial passes and picks the largest batch that
-  actually fits in whatever VRAM this GPU has. A hardcoded `--batch 32`
-  was here in an earlier draft and OOM'd (`torch.AcceleratorError: CUDA
-  error: out of memory`) on a real GPU with less VRAM than whatever card
-  32 was sized for. Pass `--batch <N>` explicitly if you want a fixed,
-  reproducible batch size across runs instead.
+- **Batch size is also automatic on a single GPU** (`--batch -1`, the
+  default) — Ultralytics' AutoBatch runs a few trial passes and picks the
+  largest batch that actually fits in whatever VRAM this GPU has. A
+  hardcoded `--batch 32` was here in an earlier draft and OOM'd
+  (`torch.AcceleratorError: CUDA error: out of memory`) on a real GPU with
+  less VRAM than whatever card 32 was sized for. Pass `--batch <N>`
+  explicitly if you want a fixed, reproducible batch size across runs
+  instead.
+- **AutoBatch does not work at all across multiple GPUs** — confirmed via
+  Ultralytics' own error on real 2-GPU hardware: `AutoBatch with batch<1
+  not supported for Multi-GPU training`. Both scripts detect this
+  automatically and fall back to a conservative explicit batch (8 per
+  GPU — a valid multiple of the GPU count, which Ultralytics requires) so
+  training still starts rather than crashing; you'll see a printed note
+  when this fallback kicks in. Pass `--batch <N>` yourself (a multiple of
+  your GPU count) if 8-per-GPU isn't the right tradeoff for your cards.
 - **On a small-VRAM GPU, AutoBatch can still OOM a few iterations in**
   (not on the first batch) — hit for real: training ran cleanly for ~15
   iterations, memory climbing, then died in the DataLoader's pin-memory
@@ -295,6 +304,13 @@ agon --input <video> --model models/best.onnx \
   batch**: see the "small-VRAM GPU" bullet under Step 4 — try
   `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`, then `--workers`,
   then a smaller fixed `--batch`/`--imgsz`, in that order.
+- **`ValueError: AutoBatch with batch<1 not supported for Multi-GPU
+  training`**: shouldn't happen anymore — both scripts now detect
+  multi-GPU and pick an explicit batch automatically (see the AutoBatch
+  bullet under Step 4). If you still hit this, you're likely running an
+  image built before that fix; rebuild (`docker build -t agon:train .`)
+  and confirm `git log -1` shows a commit at or after the "multi-GPU
+  AutoBatch fallback" change.
 - **`RuntimeError: unable to allocate shared memory(shm)... No space left
   on device`** partway through a training run: not actual disk space —
   Docker's default 64MB `/dev/shm` is too small for PyTorch's DataLoader
