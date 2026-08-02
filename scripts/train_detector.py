@@ -169,7 +169,13 @@ def main() -> None:
             sys.exit(1)
         print(f"Resuming from {args.resume} (ignoring --data/--imgsz/--batch/etc.)")
         model = YOLO(str(args.resume))
-        results = model.train(resume=True)
+        # --workers is a pure DataLoader setting (unlike --data/--imgsz, which must match
+        # the checkpoint's architecture) -- safe, and sometimes necessary, to override even
+        # on resume, e.g. if the original run's saved workers value caused an OOM.
+        resume_kwargs = {"resume": True}
+        if args.workers is not None:
+            resume_kwargs["workers"] = args.workers
+        results = model.train(**resume_kwargs)
         _finish(model, results, args.export_onnx)
         return
 

@@ -235,6 +235,13 @@ validating end-to-end against real footage:
   `dmesg` showed the training process at ~8.3GB resident on a 15GB-total
   system) killed a run mid-epoch-11 on the ML machine's 1.29M-image
   jersey-crop dataset.
+- Both `--resume` implementations now accept `--workers` as an override
+  even in resume mode -- caught before it caused a repeat failure: plain
+  `model.train(resume=True)` reuses the checkpoint's *saved* `workers`
+  value, which would have silently repeated the exact OOM the resume was
+  meant to recover from. `--workers` is a pure DataLoader setting (unlike
+  `--data`/`--imgsz`, which must match the checkpoint's architecture), so
+  overriding it on resume is safe.
 
 ### Verified
 - GPU passthrough (`docker run --gpus all`), confirmed end-to-end for the
