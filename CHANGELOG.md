@@ -242,6 +242,47 @@ validating end-to-end against real footage:
   meant to recover from. `--workers` is a pure DataLoader setting (unlike
   `--data`/`--imgsz`, which must match the checkpoint's architecture), so
   overriding it on resume is safe.
+- **Jersey number recognition, inference side** (`agon.jersey`): a real
+  first training run surfaced that per-frame classification alone is
+  fundamentally unreliable for this task -- confirmed against the official
+  SoccerNet Jersey Number Recognition task description
+  (github.com/SoccerNet/sn-jersey), which states the numbers "might be
+  visible on a very small subset of the whole tracklet" and its own
+  reference solutions score ~93% by aggregating across a whole tracklet,
+  not classifying isolated frames (this project measured ~1-1.5% top1 on
+  isolated frames, consistent with that). Added `agon.interfaces.
+  JerseyClassifier`, `agon.jersey.onnx_classifier.OnnxJerseyClassifier`
+  (mirrors `EmbeddingTeamClassifier`'s ONNX pattern), and `agon.jersey.
+  aggregator.aggregate_track_jersey_numbers` (confidence-weighted voting
+  across every frame a track appears in, using the track IDs the tracker
+  already provides -- the natural, already-available piece of
+  infrastructure for this). Wired into `run_pipeline` via new
+  `PipelineConfig.jersey_model_path`/`jersey_min_confidence` fields,
+  opt-in and off by default (`ObjectRecord.jersey_number` stays null
+  unless configured, unchanged from before). `train_jersey_classifier.py`
+  gained `--export-onnx` (it had no ONNX export at all previously) plus a
+  `classes.json` sidecar, since Ultralytics' output-index -> label-string
+  order isn't reliably recoverable from the ONNX file alone.
+- Real, targeted training-data fix on the ML machine (not yet in a
+  script, done by hand and documented in the project plan): removed
+  legacy Jersey-2023 crops from the combined jersey training set for
+  every class except the 3 (`1`, `18`, `2`) where SN-GSR-2025 provided
+  zero coverage -- Jersey-2023 labels the *entire tracklet* with one
+  ground-truth number regardless of whether it's visible in any given
+  sampled frame, while SN-GSR-2025's `attributes.jersey` is null (mapped
+  to "unknown") per-frame when illegible, a much cleaner training signal
+  wherever it has sufficient volume (97%+ of most classes already).
+  Dropped ~20K noisy crops; a fresh `jersey-gsr` training run is in
+  progress on the cleaned data.
+
+### Known limitations, honestly documented
+- `agon.jersey.onnx_classifier.OnnxJerseyClassifier`'s preprocessing
+  (ImageNet mean/std normalization, assumed-post-softmax ONNX output) has
+  **not been empirically cross-checked** against `YOLO(onnx_path).
+  predict()`'s own output on the same crops -- written before this
+  project's first jersey-classifier ONNX export finished training. Do
+  that check before trusting it in production; a preprocessing mismatch
+  degrades accuracy silently, unlike a shape mismatch.
 
 ### Verified
 - GPU passthrough (`docker run --gpus all`), confirmed end-to-end for the

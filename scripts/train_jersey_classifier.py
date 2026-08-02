@@ -28,8 +28,13 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ultralytics import YOLO
 
 
 def parse_args() -> argparse.Namespace:
@@ -86,6 +91,16 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--project", type=Path, default=Path("runs/train"))
     parser.add_argument("--name", type=str, default="jersey")
+    parser.add_argument(
+        "--export-onnx",
+        action="store_true",
+        default=True,
+        help="Export the best checkpoint to ONNX at the same imgsz after training (default: "
+        "on), plus a classes.json sidecar mapping output index -> label string (agon.jersey."
+        "OnnxJerseyClassifier needs this; the ONNX file alone doesn't reliably expose "
+        "Ultralytics' internal class-index order).",
+    )
+    parser.add_argument("--no-export-onnx", dest="export_onnx", action="store_false")
     return parser.parse_args()
 
 
@@ -150,7 +165,7 @@ def main() -> None:
         if args.workers is not None:
             resume_kwargs["workers"] = args.workers
         results = model.train(**resume_kwargs)
-        print(f"\nTraining done. Results/weights under: {results.save_dir}")
+        _finish(model, results, args.export_onnx)
         return
 
     if args.data is None:
@@ -181,7 +196,42 @@ def main() -> None:
         project=str(args.project),
         name=args.name,
     )
+    _finish(model, results, args.export_onnx)
+
+
+def _finish(model: YOLO, results, export_onnx: bool) -> None:
+    """Shared by both the fresh-training and --resume paths, mirroring
+    train_detector.py's _finish(). Reads the actual trained imgsz back off
+    the model's own trainer args rather than trusting --imgsz on the CLI,
+    which is meaningless in --resume mode."""
     print(f"\nTraining done. Results/weights under: {results.save_dir}")
+
+    imgsz = model.trainer.args.imgsz
+    if export_onnx:
+        best_weights = Path(results.save_dir) / "weights" / "best.pt"
+        if not best_weights.exists():
+            print(f"Expected best.pt at {best_weights}, skipping ONNX export.", file=sys.stderr)
+            return
+
+        from ultralytics import YOLO as _YOLO
+
+        trained_model = _YOLO(str(best_weights))
+        onnx_path = trained_model.export(format="onnx", imgsz=imgsz, dynamic=False)
+
+        # agon.jersey.OnnxJerseyClassifier needs output-index -> label mapping, and
+        # Ultralytics' own class order (trained_model.names, index -> label string,
+        # sorted by the training data's label folder names) isn't reliably recoverable
+        # from the ONNX file alone -- write it explicitly rather than parse ONNX
+        # metadata format, which is undocumented and could change between versions.
+        classes_path = Path(onnx_path).with_name("classes.json")
+        classes_path.write_text(json.dumps(trained_model.names))
+
+        print(f"Exported ONNX ({imgsz}x{imgsz}): {onnx_path}")
+        print(f"Wrote class mapping: {classes_path}")
+        print(
+            "Set PipelineConfig.jersey_model_path to this .onnx path (classes.json must "
+            "sit alongside it) to use this checkpoint in the pipeline."
+        )
 
 
 if __name__ == "__main__":

@@ -119,6 +119,19 @@ class PipelineConfig(BaseModel):
     game_clock_s tagging and for telling replays apart from live play in
     frame_filter_mode; without it, frame_filter can only distinguish
     graphics/ads (no pitch visible) from everything else."""
+    jersey_model_path: str | None = None
+    """Path to an ONNX jersey-number classifier exported by
+    scripts/train_jersey_classifier.py --export-onnx (a classes.json
+    sidecar must sit alongside it -- see agon.jersey.OnnxJerseyClassifier).
+    None (default): jersey classification is skipped entirely and every
+    ObjectRecord.jersey_number stays null, same as before this existed."""
+    jersey_min_confidence: float = 0.5
+    """Per-frame confidence threshold applied during track-level
+    aggregation (see agon.jersey.aggregator) -- frames below this are
+    dropped before voting, not just down-weighted. Single-frame jersey
+    classification is unreliable by the underlying task's own nature (see
+    that module's docstring), so this default is deliberately not
+    permissive."""
 
 
 class Settings(BaseSettings):

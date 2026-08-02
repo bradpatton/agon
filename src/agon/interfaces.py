@@ -85,3 +85,27 @@ class PitchCalibrator(Protocol):
     def calibrate(self, frames: list[Frame], frame_offset: int = 0) -> None: ...
 
     def transform_point(self, point: Point, frame_idx: int = 0) -> Point | None: ...
+
+
+@runtime_checkable
+class JerseyClassifier(Protocol):
+    """Reads a jersey number from one player/goalkeeper crop.
+
+    One implementation: ``agon.jersey.onnx_classifier.OnnxJerseyClassifier``
+    (onnxruntime-backed, trained via ``scripts/train_jersey_classifier.py``).
+
+    Deliberately single-frame, not track-aware -- a single crop often
+    doesn't show the number at all (player facing away from the camera,
+    motion blur, low resolution; see that training script's docstring for
+    why this is common, not an edge case). ``agon.jersey.aggregator``
+    combines many single-frame calls (one per frame a track appears in)
+    into one per-track answer via confidence-weighted voting, which is
+    what actually determines real-world accuracy -- see the project plan
+    for why single-frame accuracy alone is the wrong metric to optimize.
+    """
+
+    def classify(self, frame: Frame, bbox: BBox) -> tuple[int | None, float]:
+        """Returns (jersey_number, confidence). jersey_number is None for
+        the "unknown"/illegible class; confidence is that class's own
+        softmax probability either way, so a caller can threshold on it."""
+        ...

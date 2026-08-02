@@ -53,7 +53,7 @@ from agon.geometry.view_transformer import (
     ViewTransformer,
     add_transformed_position_to_tracks,
 )
-from agon.interfaces import Detector, PitchCalibrator, TeamClassifier
+from agon.interfaces import Detector, JerseyClassifier, PitchCalibrator, TeamClassifier
 from agon.io.video import (
     Frame,
     IncrementalVideoWriter,
@@ -181,6 +181,44 @@ def _build_team_classifier(
         return EmbeddingTeamClassifier(embedding_model_path, random_state=random_state)
 
     return TeamAssigner(random_state=random_state)
+
+
+def _build_jersey_classifier(config: PipelineConfig) -> JerseyClassifier | None:
+    """None (default) when config.jersey_model_path is unset -- jersey
+    classification is entirely opt-in, matching clock_reader's pattern."""
+    if config.jersey_model_path is None:
+        return None
+
+    from agon.jersey.onnx_classifier import OnnxJerseyClassifier
+
+    return OnnxJerseyClassifier(config.jersey_model_path)
+
+
+def _assign_jersey_numbers(
+    tracks: Tracks,
+    jersey_classifier: JerseyClassifier,
+    video_frames: list[Frame],
+    min_confidence: float,
+) -> None:
+    """Runs jersey_classifier.classify() once per player/goalkeeper track
+    per frame, aggregates each track's predictions across every frame it
+    appears in (see agon.jersey.aggregator -- single-frame predictions
+    alone are unreliable by the underlying task's own nature, not a bug
+    here), then writes the one aggregated number back into every one of
+    that track's frame entries."""
+    from agon.jersey.aggregator import aggregate_track_jersey_numbers
+
+    predictions_by_track: dict[int, list[tuple[int | None, float]]] = {}
+    for frame_num, player_track in enumerate(tracks["players"]):
+        for player_id, track in player_track.items():
+            prediction = jersey_classifier.classify(video_frames[frame_num], track["bbox"])
+            predictions_by_track.setdefault(player_id, []).append(prediction)
+
+    aggregated = aggregate_track_jersey_numbers(predictions_by_track, min_confidence=min_confidence)
+
+    for player_track in tracks["players"]:
+        for player_id, track in player_track.items():
+            track["jersey_number"] = aggregated.get(player_id)
 
 
 def _build_clock_reader(config: PipelineConfig) -> ClockReader | None:
@@ -381,6 +419,12 @@ def run_pipeline(
             team_ball_control.append(team_ball_control[-1] if team_ball_control else 0)
 
     team_ball_control_array = np.array(team_ball_control)
+
+    jersey_classifier = _build_jersey_classifier(config)
+    if jersey_classifier is not None:
+        _assign_jersey_numbers(
+            tracks, jersey_classifier, video_frames, min_confidence=config.jersey_min_confidence
+        )
 
     if output_video_path is not None:
         output_frames = draw_annotations(video_frames, tracks, team_ball_control_array)

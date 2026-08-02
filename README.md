@@ -186,11 +186,16 @@ imgsz=640, dynamic=False)`.
   combined SoccerNet sources (`scripts/convert_soccernet_gsr_to_calibration.py`,
   `scripts/convert_soccernet_calibration_to_pixels.py`) but the model itself
   doesn't yet.
-- **Jersey number recognition, inference side.** Training is fully built and
-  validated (`scripts/train_jersey_classifier.py`, see
-  [`docs/TRAINING.md`](docs/TRAINING.md)); the export schema has
-  `jersey_number` ready to receive it, but no code path loads a trained
-  classifier and calls it during a pipeline run yet.
+- **Jersey number recognition, model not yet trained on clean data.** The
+  inference side is now built (`agon.jersey`: `OnnxJerseyClassifier` +
+  track-level confidence-weighted aggregation — see that module's
+  docstring for why single-frame classification alone is unreliable by
+  the underlying task's own nature, and `PipelineConfig.jersey_model_path`
+  to enable it), but no checkpoint has finished training on the corrected
+  (GSR-2025-primary) data yet — an earlier training pass surfaced real
+  data-quality issues (severe class imbalance, tracklet-level labels
+  applied to frames where the number isn't visible) that needed fixing
+  first. See the project plan for the full diagnosis.
 
 ## Training / fine-tuning
 
@@ -259,6 +264,7 @@ src/agon/
   camera/                   # optical-flow camera-movement compensation
   geometry/                 # bbox math, pitch calibrators
   team/                     # team classifiers
+  jersey/                   # jersey-number classifier + track-level aggregation
   analytics/                # ball possession, speed/distance
   export/                   # versioned schema + JSONL/Parquet/summary writers
   viz/                      # annotated-video drawing
