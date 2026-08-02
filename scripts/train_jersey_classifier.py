@@ -39,9 +39,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--data",
         type=Path,
-        required=True,
+        default=None,
         help="Directory containing train/<label>/*.jpg (and optionally val/<label>/*.jpg), "
-        "written by convert_soccernet_gsr_to_jersey_crops.py.",
+        "written by convert_soccernet_gsr_to_jersey_crops.py. Required unless --resume is "
+        "given.",
+    )
+    parser.add_argument(
+        "--resume",
+        type=Path,
+        default=None,
+        help="Path to a last.pt checkpoint to resume interrupted training from (e.g. after "
+        "an OOM kill or crash) -- picks up at the next epoch using that checkpoint's own "
+        "saved training args, ignoring every other flag below. Ultralytics' own resume "
+        "mechanism, not a custom one.",
     )
     parser.add_argument(
         "--base-model",
@@ -117,13 +127,6 @@ def _resolve_batch(batch: int, device: str | None) -> int:
 def main() -> None:
     args = parse_args()
 
-    if not args.data.exists():
-        print(f"Data directory not found: {args.data}", file=sys.stderr)
-        sys.exit(1)
-    if not (args.data / "train").exists():
-        print(f"Expected {args.data}/train/<label>/*.jpg -- not found.", file=sys.stderr)
-        sys.exit(1)
-
     try:
         from ultralytics import YOLO
     except ImportError:
@@ -131,6 +134,26 @@ def main() -> None:
             "train_jersey_classifier.py needs the 'train' extra: pip install 'agon[train]'",
             file=sys.stderr,
         )
+        sys.exit(1)
+
+    if args.resume is not None:
+        if not args.resume.exists():
+            print(f"Resume checkpoint not found: {args.resume}", file=sys.stderr)
+            sys.exit(1)
+        print(f"Resuming from {args.resume} (ignoring --data/--imgsz/--batch/etc.)")
+        model = YOLO(str(args.resume))
+        results = model.train(resume=True)
+        print(f"\nTraining done. Results/weights under: {results.save_dir}")
+        return
+
+    if args.data is None:
+        print("--data is required unless --resume is given.", file=sys.stderr)
+        sys.exit(1)
+    if not args.data.exists():
+        print(f"Data directory not found: {args.data}", file=sys.stderr)
+        sys.exit(1)
+    if not (args.data / "train").exists():
+        print(f"Expected {args.data}/train/<label>/*.jpg -- not found.", file=sys.stderr)
         sys.exit(1)
 
     device = args.device if args.device is not None else _auto_device()

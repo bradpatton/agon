@@ -230,6 +230,11 @@ validating end-to-end against real footage:
   off the model's trainer args instead of trusting `--imgsz` on the CLI,
   since that flag is meaningless (still at its argparse default) in
   `--resume` mode.
+- `train_jersey_classifier.py --resume <path>`: same mechanism, added
+  after a real host-RAM OOM kill (kernel OOM killer, not GPU VRAM --
+  `dmesg` showed the training process at ~8.3GB resident on a 15GB-total
+  system) killed a run mid-epoch-11 on the ML machine's 1.29M-image
+  jersey-crop dataset.
 
 ### Verified
 - GPU passthrough (`docker run --gpus all`), confirmed end-to-end for the
