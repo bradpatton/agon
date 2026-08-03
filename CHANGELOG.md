@@ -451,3 +451,44 @@ validating end-to-end against real footage:
   (consistent with the previously-observed 100-200 km/h nonsense speeds),
   and surfaced a genuine gap -- this project has no properly-annotated
   pitch calibration file anywhere to run a clean accuracy check against.
+- **`PitchKeypointCalibrator.inverse_transform_point()`**: the inverse of
+  `transform_point()` (pitch-space meters -> pixel space), added to
+  support a genuine ground-truth self-consistency check -- round-trip
+  tested against a real `calibrate()` call on a synthetic frame, not just
+  algebraically. Used by
+  **`scripts/validate_pitch_calibration_self_consistency.py`**: predicts
+  where a touchline should be in pixel space (a known real distance,
+  court_width_m/2, from the resolved circle center along the halfway
+  line -- something the transform is never actually built from), then
+  checks whether the frame really has a pitch-line pixel there. A
+  sharper validation than cross-calibrator agreement above, since it
+  doesn't depend on a second calibrator's own (possibly also wrong)
+  output.
+
+  Real results against two real clips: `benchmark_clip.mp4` had zero
+  checkable predictions across all 180 frames -- diagnosed, not just
+  observed: at that clip's zoom level the touchlines are ~1979px apart,
+  wider than the 1916px frame itself, so the prediction correctly never
+  lands in-frame given that camera's shot. `match_10min_sample.mp4`
+  (sampled across ten 500-frame windows spanning the whole match): 55
+  checkable predictions, only 5 (~9%) landed within 25px of a real line
+  pixel -- confirms the similarity-transform approximation really is
+  inaccurate on real match footage, not just theoretically.
+
+  **A bigger finding than the accuracy number itself, found by pulling
+  and looking at the actual source frames rather than trusting the
+  statistics alone**: some of the "resolved" detections in that sample
+  weren't calibrating against the pitch at all -- a sustained NBC
+  broadcast bumper/transition graphic (the animated peacock logo) was
+  confidently matched as the center circle (its glowing near-white
+  outline over a green-ish background passes the same filters a real
+  circle would). A separate sample showed a different form of the same
+  underlying issue: real pitch footage, but near a goal, where the
+  detected "circle" is almost certainly the penalty box. Both are
+  consistent with an already-documented limitation, but the
+  broadcast-graphic case is new and more serious -- this project already
+  has a broadcast-frame classifier
+  (`agon.broadcast.frame_filter`, live-play vs. replay vs. graphic) that
+  isn't wired into pitch calibration at all today, so it never gets a
+  chance to reject a frame like this before calibration runs on it.
+  Flagged as a new Phase 12 item 6 in the project plan, not yet built.

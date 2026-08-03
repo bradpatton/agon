@@ -168,6 +168,13 @@ def _closest_equivalent_angle(angle_mod_pi: float, previous: float | None) -> fl
 
 
 class PitchKeypointCalibrator:
+    """Local pitch-space coordinate system (per resolved frame): origin at
+    the detected circle center, x = perpendicular to the halfway line
+    (toward/away from the goals), y = along the halfway line (toward the
+    touchlines). This isn't just an implementation detail -- see
+    ``inverse_transform_point`` for why the convention matters to callers
+    beyond ``transform_point`` itself."""
+
     def __init__(self, court_width_m: float = 68.0):
         self.court_width_m = court_width_m
         self._transforms: dict[int, tuple[Point, npt.NDArray[np.float64], float]] = {}
@@ -249,3 +256,32 @@ class PitchKeypointCalibrator:
         delta = np.array([point[0] - cx, point[1] - cy])
         rotated = rotation @ delta
         return float(rotated[0] * scale), float(rotated[1] * scale)
+
+    def inverse_transform_point(self, pitch_point: Point, frame_idx: int = 0) -> Point | None:
+        """The inverse of ``transform_point``: given a pitch-space point
+        (meters, in this calibrator's own local coordinate system -- origin
+        at the circle center, x = along the pitch length/toward the goals,
+        y = along the halfway line/toward the touchlines), returns its
+        predicted pixel-space location for the given frame, or None if that
+        frame has no resolved transform.
+
+        Exists for self-consistency checking, not normal pipeline use: since
+        this calibrator's scale/rotation are derived *only* from the center
+        circle and halfway-line angle, predicting where some *other* known
+        pitch feature should be (e.g. a touchline, at y = +/-
+        court_width_m/2, x = 0) and checking whether the frame actually has
+        a pitch-line pixel there is a real, buildable check of whether the
+        resolved transform is trustworthy -- unlike comparing this
+        calibrator's own output to itself, which is tautological. See
+        ``scripts/validate_pitch_calibration_self_consistency.py``.
+        """
+        transform = self._transforms.get(frame_idx)
+        if transform is None:
+            return None
+
+        (cx, cy), rotation, scale = transform
+        rotated = np.array([pitch_point[0] / scale, pitch_point[1] / scale])
+        # rotation is orthogonal (built from cos/sin of a single angle), so
+        # its inverse is its transpose -- no separate matrix inversion needed.
+        delta = rotation.T @ rotated
+        return float(cx + delta[0]), float(cy + delta[1])

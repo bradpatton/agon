@@ -74,3 +74,49 @@ class TestPitchKeypointCalibrator:
         calibrator = PitchKeypointCalibrator()
         calibrator.calibrate([])
         assert calibrator.transform_point((100, 100), frame_idx=0) is None
+
+    def test_inverse_transform_point_none_when_uncalibrated(self):
+        calibrator = PitchKeypointCalibrator()
+        assert calibrator.inverse_transform_point((0, 0), frame_idx=0) is None
+
+
+class TestInverseTransformPoint:
+    """Uses a real calibrate() call against a synthetic pitch frame (grass
+    green background, a white ellipse standing in for the center circle,
+    a horizontal white line through it standing in for the halfway line)
+    so these exercise the actual resolved rotation/scale, not a hand-built
+    transform -- inverse_transform_point exists specifically to support
+    self-consistency checks against a real resolved calibration (see
+    scripts/validate_pitch_calibration_self_consistency.py)."""
+
+    def _pitch_frame(self, center=(400, 300), axes=(180, 60), size=(600, 800)) -> np.ndarray:
+        frame = np.zeros((*size, 3), dtype=np.uint8)
+        frame[:] = (0, 255, 0)  # pure green grass, BGR
+        cv2.ellipse(frame, center, axes, 0, 0, 360, (255, 255, 255), 3)
+        cx, cy = center
+        cv2.line(frame, (cx - 300, cy), (cx + 300, cy), (255, 255, 255), 2)
+        return frame
+
+    def test_round_trips_the_circle_center(self):
+        calibrator = PitchKeypointCalibrator()
+        calibrator.calibrate([self._pitch_frame(center=(400, 300))])
+
+        pitch_point = calibrator.transform_point((400, 300), frame_idx=0)
+        assert pitch_point is not None
+        # Not exactly (0, 0): cv2.fitEllipse on a real rasterized ellipse
+        # resolves a center a fraction of a pixel off (400, 300) -- real
+        # detection noise, not a bug in the transform math.
+        assert pitch_point == pytest.approx((0.0, 0.0), abs=1e-2)
+
+        pixel_point = calibrator.inverse_transform_point(pitch_point, frame_idx=0)
+        assert pixel_point == pytest.approx((400, 300), abs=1e-6)
+
+    def test_round_trips_arbitrary_points(self):
+        calibrator = PitchKeypointCalibrator()
+        calibrator.calibrate([self._pitch_frame(center=(400, 300))])
+
+        for original in [(400, 200), (250, 350), (600, 450)]:
+            pitch_point = calibrator.transform_point(original, frame_idx=0)
+            assert pitch_point is not None
+            recovered = calibrator.inverse_transform_point(pitch_point, frame_idx=0)
+            assert recovered == pytest.approx(original, abs=1e-6)
