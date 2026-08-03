@@ -30,7 +30,8 @@ Usage:
     python scripts/render_pitch_markings_overlay.py \\
         --input input_videos/match_10min_sample.mp4 \\
         --start-frame 27000 --max-frames 500 \\
-        --output-dir /tmp/pitch_overlay
+        --output-video output/pitch_overlay/match_10min_sample_overlay.mp4 \\
+        --output-dir output/pitch_overlay/samples
 """
 
 from __future__ import annotations
@@ -49,7 +50,7 @@ from agon.geometry.pitch_keypoint_calibrator import (  # noqa: E402
     CENTER_CIRCLE_RADIUS_M,
     PitchKeypointCalibrator,
 )
-from agon.io.video import Frame  # noqa: E402
+from agon.io.video import Frame, get_video_info, save_video  # noqa: E402
 
 # Fixed by the Laws of the Game -- do not vary by pitch, unlike overall
 # length/width (which do, within FIFA's allowed range).
@@ -79,16 +80,26 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output-dir",
         type=Path,
-        required=True,
+        default=None,
         help="Directory to write annotated sample frames into -- one per resolved frame "
-        "encountered, up to --max-samples.",
+        "encountered, up to --max-samples. At least one of --output-dir/--output-video "
+        "is required.",
     )
     parser.add_argument(
         "--max-samples",
         type=int,
         default=10,
-        help="Stop after writing this many annotated frames (default 10) -- avoids "
-        "writing thousands of near-identical images for a long clip.",
+        help="Stop writing sample images after this many (default 10) -- avoids "
+        "writing thousands of near-identical images for a long clip. Doesn't limit "
+        "--output-video, which always covers every frame read.",
+    )
+    parser.add_argument(
+        "--output-video",
+        type=Path,
+        default=None,
+        help="Path to write a full annotated .mp4 covering every frame read (overlay drawn "
+        "on resolved frames, original frame passed through unchanged otherwise) -- unlike "
+        "--output-dir's sample images, this is watchable end-to-end, e.g. in a video player.",
     )
     return parser.parse_args()
 
@@ -264,29 +275,55 @@ def draw_pitch_markings(
 
 def main() -> None:
     args = parse_args()
+    if args.output_dir is None and args.output_video is None:
+        print("At least one of --output-dir or --output-video is required.", file=sys.stderr)
+        sys.exit(1)
+
     frames = _read_video_slice(args.input, args.start_frame, args.max_frames)
     print(f"Read {len(frames)} frames from {args.input} (starting at frame {args.start_frame})")
 
     calibrator = PitchKeypointCalibrator(court_width_m=args.court_width_m)
     calibrator.calibrate(frames)
 
-    args.output_dir.mkdir(parents=True, exist_ok=True)
+    if args.output_dir is not None:
+        args.output_dir.mkdir(parents=True, exist_ok=True)
     written = 0
-    for frame_idx, frame in enumerate(frames):
-        if frame_idx not in calibrator._transforms:  # noqa: SLF001 -- inspecting resolved frames
-            continue
-        annotated = draw_pitch_markings(
-            frame, calibrator, frame_idx, args.court_width_m, args.court_length_m
-        )
-        out_path = args.output_dir / f"frame_{args.start_frame + frame_idx:06d}.png"
-        cv2.imwrite(str(out_path), annotated)
-        written += 1
-        if written >= args.max_samples:
-            break
+    resolved_count = 0
+    video_frames: list[Frame] = []
 
-    print(f"Wrote {written} annotated frame(s) to {args.output_dir}")
-    if written == 0:
-        print("No frames had a resolved calibration -- nothing to draw.")
+    for frame_idx, frame in enumerate(frames):
+        is_resolved = frame_idx in calibrator._transforms  # noqa: SLF001 -- inspecting resolved frames
+        if is_resolved:
+            resolved_count += 1
+            annotated = draw_pitch_markings(
+                frame, calibrator, frame_idx, args.court_width_m, args.court_length_m
+            )
+        else:
+            annotated = frame
+
+        if args.output_video is not None:
+            video_frames.append(annotated)
+
+        if args.output_dir is not None and is_resolved and written < args.max_samples:
+            out_path = args.output_dir / f"frame_{args.start_frame + frame_idx:06d}.png"
+            cv2.imwrite(str(out_path), annotated)
+            written += 1
+
+    print(f"{resolved_count}/{len(frames)} frames had a resolved calibration to draw.")
+
+    if args.output_dir is not None:
+        print(f"Wrote {written} annotated sample image(s) to {args.output_dir}")
+
+    if args.output_video is not None:
+        fps = get_video_info(args.input).fps
+        save_video(video_frames, args.output_video, fps=fps)
+        print(
+            f"Wrote a full annotated video ({len(video_frames)} frames, {fps:.1f}fps) "
+            f"to {args.output_video}"
+        )
+
+    if resolved_count == 0:
+        print("No frames had a resolved calibration -- nothing was drawn anywhere.")
 
 
 if __name__ == "__main__":
