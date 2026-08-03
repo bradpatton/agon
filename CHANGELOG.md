@@ -580,3 +580,40 @@ validating end-to-end against real footage:
   dataset's remaining failures are the *other* already-documented causes
   (wrong pitch arc matched as the circle, broadcast-graphic false
   positives), which this fix doesn't address on its own.
+
+### Added
+- **Data pipeline for a trained pitch-calibration keypoint model**
+  (Phase 13): a full audit of already-downloaded SoccerNet labeled data
+  confirmed 115 SN-GSR-2025 sequences with per-frame annotations for up
+  to 26 named pitch-line features (far more than the classical
+  calibrator's center-circle-only input), tagged by real match event
+  type -- confirmed goals (14) and corners (11) are both well
+  represented, directly answering whether those situations' distinctive
+  camera angles are covered. Plus 17,309 more images from the legacy
+  Calibration dataset.
+
+  `agon.geometry.pitch_keypoints`: 46 canonical real-world keypoints (21
+  straight-line features' endpoints -- circles and crossbars deliberately
+  excluded, see module docstring), with point order verified directly
+  against real pixel data, not assumed. Verification found a real,
+  consequential bug along the way: SoccerNet clips line annotations to
+  the visible frame, so a clipped "endpoint" can be an arbitrary
+  frame-boundary position with no fixed real-world meaning --
+  `is_frame_boundary_clipped` excludes these; fixed a homography-fit
+  validation's mean error from 16.85m to 2.03m on one real frame. A
+  direct visual check (real annotation pixels drawn on a real frame, no
+  fitting involved) confirmed the full mapping independently of
+  homography-fit noise.
+
+  `scripts/convert_soccernet_calibration_to_pose.py` converts this into
+  Ultralytics pose-format training data (validated by drawing a
+  converted label back onto its image before scaling up) --
+  **45,781 train + 37,164 val = 82,945 frames, 655MB** (symlinked, no
+  image duplication). `scripts/train_pitch_calibration.py` mirrors
+  `train_detector.py`'s established pattern (auto-device, auto-workers,
+  resume, ONNX export) using Ultralytics pose-estimation mode.
+
+  Status: a 1-epoch smoke test is running on real GPU hardware to
+  validate the pipeline before a full training run. The inference side
+  (`TrainedPitchCalibrator`) isn't built yet -- needs a real exported
+  model's actual output format, not just the training data.
