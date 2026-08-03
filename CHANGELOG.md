@@ -491,4 +491,32 @@ validating end-to-end against real footage:
   (`agon.broadcast.frame_filter`, live-play vs. replay vs. graphic) that
   isn't wired into pitch calibration at all today, so it never gets a
   chance to reject a frame like this before calibration runs on it.
-  Flagged as a new Phase 12 item 6 in the project plan, not yet built.
+  Flagged as a new Phase 12 item 6 in the project plan.
+- **Phase 12 item 6, built and honestly tested against the original
+  failing frame**: `PitchKeypointCalibrator` gained a `min_grass_fraction`
+  gate (default 0.35, reusing `PipelineConfig.min_grass_fraction`) that
+  skips circle detection on any frame without enough pitch-green
+  coverage, via the existing `agon.broadcast.frame_filter.grass_fraction`
+  (cheap, no OCR, no new dependency). Deliberately *not* gated on
+  `classify_frame`'s LIVE_PLAY/REPLAY distinction instead -- testing that
+  option against the same real footage first showed it would inherit the
+  already-documented Phase 8 bug (a confirmed-real live goal-mouth
+  scramble got misclassified as REPLAY because clock OCR failed on 4 of
+  5 sampled frames), trading one false positive for a worse one.
+
+  **Reported honestly rather than oversold**: re-tested directly against
+  the original bumper frame -- this gate does *not* catch it. Its
+  `grass_fraction` measures 0.645, comfortably above the 0.35 threshold,
+  because the bumper animation overlays a still-visible, blurred-green
+  pitch background rather than replacing it with a solid non-green
+  graphic. Two other frames originally suspected of being more instances
+  of the same bug turned out, on closer inspection, to be a different,
+  already-documented issue instead (real live footage near a goal, where
+  the penalty box was likely matched as the center circle -- item 2's
+  territory, not a frame-classification problem). A "vivid non-grass-hue
+  pixel fraction" heuristic was tried as a more targeted fix and did not
+  cleanly separate the bumper frame from real pitch frames on this
+  sample -- not pursued further, not shipped. This gate is a real,
+  useful improvement for genuine no-pitch content (ads, lineup cards,
+  studio shots), just not a complete fix for the specific case that
+  motivated it.

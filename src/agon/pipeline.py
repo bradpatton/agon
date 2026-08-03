@@ -144,7 +144,9 @@ def _first_frame_with_enough_players(player_tracks: list[dict], min_players: int
     )
 
 
-def _make_pitch_calibrator(calibration: CalibrationConfig, mode: str) -> PitchCalibrator:
+def _make_pitch_calibrator(
+    calibration: CalibrationConfig, mode: str, min_grass_fraction: float = 0.35
+) -> PitchCalibrator:
     """Picks a PitchCalibrator per ``PipelineConfig.calibration_mode`` --
     constructs it, but doesn't calibrate() it yet (the caller decides
     whether that's one whole-clip call or several chunked calls).
@@ -156,23 +158,34 @@ def _make_pitch_calibrator(calibration: CalibrationConfig, mode: str) -> PitchCa
     HybridPitchCalibrator) tries dynamic first and falls back to static
     per point -- measured to cover meaningfully more real detections than
     either alone, since the two mostly fail on different frames.
+
+    ``min_grass_fraction`` is forwarded to ``PitchKeypointCalibrator`` (see
+    its docstring) -- reuses ``PipelineConfig.min_grass_fraction``, the
+    same threshold the broadcast frame filter uses, rather than a second,
+    independently-tuned value for the same "is this actually pitch
+    footage" question.
     """
     if mode == "hybrid":
         return HybridPitchCalibrator(
-            primary=PitchKeypointCalibrator(court_width_m=calibration.court_width_m),
+            primary=PitchKeypointCalibrator(
+                court_width_m=calibration.court_width_m,
+                min_grass_fraction=min_grass_fraction,
+            ),
             fallback=ViewTransformer(calibration),
         )
     if mode == "dynamic":
-        return PitchKeypointCalibrator(court_width_m=calibration.court_width_m)
+        return PitchKeypointCalibrator(
+            court_width_m=calibration.court_width_m, min_grass_fraction=min_grass_fraction
+        )
     return ViewTransformer(calibration)
 
 
 def _build_pitch_calibrator(
-    calibration: CalibrationConfig, mode: str, video_frames: list
+    calibration: CalibrationConfig, mode: str, video_frames: list, min_grass_fraction: float = 0.35
 ) -> PitchCalibrator:
     """Whole-clip convenience wrapper around _make_pitch_calibrator, for the
     non-streaming pipeline."""
-    calibrator = _make_pitch_calibrator(calibration, mode)
+    calibrator = _make_pitch_calibrator(calibration, mode, min_grass_fraction)
     calibrator.calibrate(video_frames)
     return calibrator
 
@@ -402,7 +415,9 @@ def run_pipeline(
     )
     camera_movement_estimator.add_adjust_positions_to_tracks(tracks, camera_movement_per_frame)
 
-    pitch_calibrator = _build_pitch_calibrator(calibration, config.calibration_mode, video_frames)
+    pitch_calibrator = _build_pitch_calibrator(
+        calibration, config.calibration_mode, video_frames, config.min_grass_fraction
+    )
     add_transformed_position_to_tracks(tracks, pitch_calibrator)
 
     speed_distance_estimator = SpeedDistanceEstimator(
@@ -588,7 +603,9 @@ def run_pipeline_streaming(
         imgsz=config.detection_imgsz,
         tracker=tracker,
     )
-    pitch_calibrator = _make_pitch_calibrator(calibration, config.calibration_mode)
+    pitch_calibrator = _make_pitch_calibrator(
+        calibration, config.calibration_mode, config.min_grass_fraction
+    )
     team_classifier = _build_team_classifier(
         config.team_classifier, config.team_embedding_model_path, config.team_kmeans_random_state
     )

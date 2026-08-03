@@ -61,6 +61,7 @@ import cv2
 import numpy as np
 import numpy.typing as npt
 
+from agon.broadcast.frame_filter import grass_fraction
 from agon.geometry.bbox import Point
 from agon.io.video import Frame
 
@@ -175,8 +176,31 @@ class PitchKeypointCalibrator:
     ``inverse_transform_point`` for why the convention matters to callers
     beyond ``transform_point`` itself."""
 
-    def __init__(self, court_width_m: float = 68.0):
+    def __init__(self, court_width_m: float = 68.0, min_grass_fraction: float = 0.35):
+        """``min_grass_fraction``: skip circle detection entirely on frames
+        with less pitch-green coverage than this (see
+        ``agon.broadcast.frame_filter.grass_fraction``) -- a real, found
+        false positive motivated this: a sustained broadcast bumper/
+        transition graphic got confidently matched as the center circle on
+        real match footage (its glowing near-white outline over a
+        greenish background passed the existing aspect-ratio/size
+        filters). Cheap (~1ms/frame, no OCR) and catches genuine
+        no-pitch-visible frames (graphics, ads, studio shots) reliably.
+
+        Real, stated limitation, found empirically, not assumed: this does
+        NOT catch every such false positive -- a colorful graphic
+        overlaid on a still-visible, still-green pitch background (as in
+        the case that motivated this) can keep grass_fraction comfortably
+        above this default threshold. Full coverage of that specific case
+        needs either a live-play-vs-replay signal (this project's own
+        clock-based one is documented as currently unreliable -- see the
+        project plan's Phase 8) or a more targeted visual heuristic, not
+        yet built. Matching PipelineConfig.min_grass_fraction's own
+        default (0.35) for consistency, not because that specific value
+        was independently tuned for this use.
+        """
         self.court_width_m = court_width_m
+        self.min_grass_fraction = min_grass_fraction
         self._transforms: dict[int, tuple[Point, npt.NDArray[np.float64], float]] = {}
         # Persistent (not reset per calibrate() call) so the temporal
         # disambiguation described in the module docstring carries across
@@ -195,8 +219,13 @@ class PitchKeypointCalibrator:
         caller.
         """
         rejected_as_inconsistent = 0
+        rejected_as_not_pitch = 0
         resolved_this_call = 0
         for local_idx, frame in enumerate(frames):
+            if grass_fraction(frame) < self.min_grass_fraction:
+                rejected_as_not_pitch += 1
+                continue
+
             line_mask = _segment_pitch_lines(frame)
             circle = _detect_center_circle(line_mask)
             if circle is None:
@@ -234,9 +263,11 @@ class PitchKeypointCalibrator:
 
         logger.info(
             "Dynamic pitch calibration: found the center circle in %d/%d frames "
-            "(%d more rejected as size-inconsistent with the previous detection)",
+            "(%d rejected outright as not-enough-pitch-visible, %d more rejected as "
+            "size-inconsistent with the previous detection)",
             resolved_this_call,
             len(frames),
+            rejected_as_not_pitch,
             rejected_as_inconsistent,
         )
 

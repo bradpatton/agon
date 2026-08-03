@@ -79,6 +79,21 @@ class TestPitchKeypointCalibrator:
         calibrator = PitchKeypointCalibrator()
         assert calibrator.inverse_transform_point((0, 0), frame_idx=0) is None
 
+    def test_skips_circle_detection_on_a_frame_with_no_pitch_visible(self):
+        # Regression test: a real broadcast bumper/transition graphic (not
+        # the pitch at all) got confidently matched as the center circle --
+        # see PitchKeypointCalibrator's docstring. A frame that isn't
+        # green at all (a graphic/ad, not pitch footage) should never even
+        # attempt circle detection, regardless of what shapes are on it.
+        frame = np.zeros((600, 800, 3), dtype=np.uint8)
+        frame[:] = (200, 40, 20)  # solid blue-ish graphic background, not grass
+        cv2.ellipse(frame, (400, 300), (180, 60), 0, 0, 360, (255, 255, 255), 3)
+
+        calibrator = PitchKeypointCalibrator(min_grass_fraction=0.35)
+        calibrator.calibrate([frame])
+
+        assert calibrator.transform_point((400, 300), frame_idx=0) is None
+
 
 class TestInverseTransformPoint:
     """Uses a real calibrate() call against a synthetic pitch frame (grass
