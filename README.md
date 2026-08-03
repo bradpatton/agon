@@ -186,21 +186,25 @@ imgsz=640, dynamic=False)`.
   combined SoccerNet sources (`scripts/convert_soccernet_gsr_to_calibration.py`,
   `scripts/convert_soccernet_calibration_to_pixels.py`) but the model itself
   doesn't yet.
-- **Jersey number recognition, real accuracy not yet re-measured on
-  cleaned data.** Training on the corrected (GSR-2025-primary) data
-  completed and a real ONNX checkpoint exists
-  (`models/runs/train/jersey-gsr/weights/`). `agon.jersey.
-  OnnxJerseyClassifier` (single-frame) has been empirically validated
-  against Ultralytics' own reference output (32/32 label matches on real
-  crops, see CHANGELOG) — a preprocessing bug (wrong normalization, wrong
-  resize) found by that check is fixed. What's still open: the underlying
-  per-frame top1/top5 accuracy this checkpoint reaches is expected to be
-  low by the task's own nature (see `agon.jersey`'s docstring on why
-  single-frame classification alone is unreliable here), and the
-  track-level confidence-weighted aggregation this is meant to feed
-  (`aggregate_track_jersey_numbers`) hasn't yet been measured end-to-end
-  against real tracked footage. `PipelineConfig.jersey_model_path` enables
-  it once ready.
+- **Jersey number recognition works end-to-end but doesn't generalize
+  well yet — treat as experimental, off by default.** Training on the
+  corrected (GSR-2025-primary) data completed and a real ONNX checkpoint
+  exists (`models/runs/train/jersey-gsr/weights/`). `agon.jersey.
+  OnnxJerseyClassifier` has been empirically validated against
+  Ultralytics' own reference output (32/32 label matches on real crops —
+  a preprocessing bug found by that check is fixed, see CHANGELOG), and
+  the full pipeline (detection → tracking → track-level
+  confidence-weighted aggregation → annotated video, labeled `"12 (3)"` —
+  predicted jersey number, track_id in parentheses) has now been run
+  end-to-end against real broadcast footage outside the model's training
+  data. Result: it's confidently wrong on that footage — a real player's
+  actual #12 shirt was predicted as #36 with up to 98% aggregated
+  confidence. This is a domain-generalization gap (SoccerNet's own
+  broadcast footage vs. a visually different broadcast), not a bug in
+  the aggregation or ONNX-inference code, both of which check out
+  correctly. `PipelineConfig.jersey_model_path` enables it, but it's
+  opt-in and off by default for exactly this reason — improving it
+  further would mean more/more-varied training data, not a code fix.
 
 ## Training / fine-tuning
 

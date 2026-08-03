@@ -1,0 +1,19 @@
+# Example config for reviewing the soccernet-3 detector + jersey-gsr
+# classifier together against real footage, with the video labels visually
+# cross-checkable (see draw_ellipse's "12 (3)" jersey/track_id format).
+# Adjust the checkpoint paths below to whatever's actually under models/
+# on this machine -- these two happen to be what's there as of writing.
+pipeline:
+  detection_confidence: 0.1
+  detection_batch_size: 20
+  detection_imgsz: 960 # matches models/runs/train/soccernet-3's trained resolution
+  ball_max_assignment_distance_px: 70.0
+  speed_frame_window: 5
+  frame_rate: null
+  team_kmeans_random_state: 0
+  device: null
+  frame_filter_mode: "off"
+  min_grass_fraction: 0.35
+  clock_calibration_path: null
+  jersey_model_path: "models/runs/train/jersey-gsr/weights/best.onnx"
+  jersey_min_confidence: 0.5

@@ -21,8 +21,19 @@ def _is_valid_bbox(bbox: BBox) -> bool:
 
 
 def draw_ellipse(
-    frame: Frame, bbox: BBox, color: tuple[int, int, int], track_id: int | None = None
+    frame: Frame,
+    bbox: BBox,
+    color: tuple[int, int, int],
+    track_id: int | None = None,
+    jersey_number: int | None = None,
 ) -> Frame:
+    """``jersey_number`` (from ``PipelineConfig.jersey_model_path``'s
+    aggregated prediction, if configured) becomes the primary label with
+    the tracker's own ``track_id`` alongside it in parentheses, e.g.
+    "12 (3)" -- so a viewer can visually cross-check the model's
+    prediction against the actual shirt on screen. Falls back to the
+    plain ``track_id`` label (unchanged from before this existed) when no
+    jersey prediction is available for this track."""
     y2 = int(bbox[3])
     x_center, _ = get_center_of_bbox(bbox)
     width = get_bbox_width(bbox)
@@ -40,7 +51,14 @@ def draw_ellipse(
     )
 
     if track_id is not None:
-        rectangle_width, rectangle_height = 40, 20
+        label = f"{jersey_number} ({track_id})" if jersey_number is not None else f"{track_id}"
+        font, font_scale, thickness = cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2
+        (text_width, text_height), _ = cv2.getTextSize(label, font, font_scale, thickness)
+
+        # Sized to the actual label (not a fixed 40px box) since jersey
+        # labels like "12 (3)" are much wider than a bare track_id.
+        rectangle_width = text_width + 16
+        rectangle_height = text_height + 12
         x1_rect = int(x_center - rectangle_width // 2)
         x2_rect = int(x_center + rectangle_width // 2)
         y1_rect = (y2 - rectangle_height // 2) + 15
@@ -48,18 +66,14 @@ def draw_ellipse(
 
         cv2.rectangle(frame, (x1_rect, y1_rect), (x2_rect, y2_rect), color, cv2.FILLED)
 
-        x1_text = x1_rect + 12
-        if track_id > 99:
-            x1_text -= 10
-
         cv2.putText(
             frame,
-            f"{track_id}",
-            (x1_text, y1_rect + 15),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.6,
+            label,
+            (x1_rect + 8, y2_rect - (rectangle_height - text_height) // 2),
+            font,
+            font_scale,
             (0, 0, 0),
-            2,
+            thickness,
         )
 
     return frame
@@ -131,7 +145,7 @@ def draw_annotations_on_frame(
 
     for track_id, player in player_dict.items():
         color = player.get("team_color", (0, 0, 255))
-        frame = draw_ellipse(frame, player["bbox"], color, track_id)
+        frame = draw_ellipse(frame, player["bbox"], color, track_id, player.get("jersey_number"))
         if player.get("has_ball", False):
             frame = draw_triangle(frame, player["bbox"], (0, 0, 255))
 

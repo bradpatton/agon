@@ -78,6 +78,17 @@ validating end-to-end against real footage:
 ## [Unreleased] - post-0.1.0
 
 ### Added
+- Annotated video now labels each tracked player with their predicted
+  jersey number when `PipelineConfig.jersey_model_path` is configured,
+  e.g. `"12 (3)"` (predicted jersey number, tracker's own track_id in
+  parentheses) instead of just `"3"` -- lets a viewer visually cross-check
+  the model's prediction against the real shirt on screen frame-by-frame,
+  rather than only being able to check it by reading the JSON export.
+  `draw_ellipse`'s label box is now sized to the actual label text
+  (`cv2.getTextSize`) instead of a fixed 40px width, since jersey labels
+  are meaningfully wider than a bare track_id. No visual change when
+  jersey classification isn't configured (falls back to the plain
+  track_id label, unchanged).
 - `--workers` in both training scripts now defaults to an auto-detected
   value based on available *system* RAM (`_auto_workers`, using
   `psutil`, already a transitive dependency via `ultralytics` -- no new
@@ -324,3 +335,22 @@ validating end-to-end against real footage:
   correctly enumerated inside the `agon:train` container. Updated
   `Dockerfile`'s header comment and `docs/TRAINING.md`'s opening note, and
   removed the corresponding "Not yet done" bullet from `README.md`.
+- **First real-footage review of both `models/runs/train/soccernet-3`
+  (the full 50-epoch/960-imgsz detector trained on the ML machine's real
+  GPU hardware) and `jersey-gsr`, run together against
+  `benchmark_clip.mp4`** (real Premier League broadcast footage, outside
+  both models' training data). Detector: strong, validated result -- ball
+  detected in 100% of frames (180/180), every player correctly boxed and
+  tracked, referee correctly identified; confirmed both numerically and
+  by visually inspecting an annotated frame. Jersey classifier: a real,
+  separate accuracy problem found, distinct from the preprocessing bug
+  fixed earlier the same day -- pulled a player's actual crop directly
+  from the source video, visually confirmed the real shirt number was
+  12, then ran the exact same crop through the model, which predicted 36
+  with up to 98% confidence sustained across dozens of frames of that
+  track. The earlier fix confirmed the model's *output* is being read
+  correctly; this shows the *model itself* doesn't generalize well from
+  SoccerNet's own broadcast footage to a visually different broadcast
+  (different league, kit designs, camera/lighting) -- a domain-gap
+  problem, not a code bug. Flagged as a real, open limitation rather than
+  worked around.
