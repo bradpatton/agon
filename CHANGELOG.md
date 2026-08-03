@@ -520,3 +520,29 @@ validating end-to-end against real footage:
   useful improvement for genuine no-pitch content (ads, lineup cards,
   studio shots), just not a complete fix for the specific case that
   motivated it.
+- **`scripts/render_pitch_markings_overlay.py`** (Phase 12 item 7):
+  draws every standard pitch marking (touchlines, goal lines, penalty
+  boxes, six-yard boxes, penalty spots, penalty arcs, corner arcs,
+  halfway line, center circle) onto real footage, computed purely from
+  `PitchKeypointCalibrator`'s resolved transform plus fixed, real-world
+  FIFA pitch dimensions -- extends item 4's touchline self-consistency
+  check to every marking, and makes it visual instead of a single
+  hit-rate percentage. Circular features are drawn as true circles
+  deliberately, not as an oversight -- the transform is similarity-only
+  (no perspective correction), so this is an honest visualization of
+  that documented limitation, not a rendering bug.
+
+  Real findings from looking at the actual rendered output: on the known
+  bumper-graphic frame, the overlay draws the "center circle" directly
+  on the peacock logo animation -- an immediate, unambiguous visual
+  confirmation, clearer than the earlier abstract statistic. On a
+  confirmed real free-kick frame, the overlay circle lands on the goal,
+  not center pitch. **New, more specific finding from `benchmark_clip.mp4`
+  (checked across 3 frames)**: the circle's position and scale are
+  genuinely close to correct, but the drawn halfway line is consistently
+  rotated ~90 degrees from the real one -- decomposes what the earlier
+  aggregate "~9% accurate" touchline number couldn't distinguish: the
+  circle-based position/scale resolution is reasonably trustworthy on
+  this footage, the halfway-line-angle resolution specifically isn't.
+  Root cause not yet investigated -- a clear, now visually-demonstrated
+  target for item 2 or a follow-on fix.
