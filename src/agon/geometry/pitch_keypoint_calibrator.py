@@ -50,6 +50,21 @@ solution:
   frame-to-frame size-consistency check (see ``calibrate()``) catches the
   obvious jumps but not every case, since a wrong arc can coincidentally be
   a similar apparent size to the last genuine detection.
+- **Fixed, but worth recording**: a rendered pitch-marking overlay tool
+  (``scripts/render_pitch_markings_overlay.py``) visually surfaced that
+  this calibrator's circle position/scale were reasonably accurate on
+  real footage but the rotation was consistently off by ~90 degrees.
+  Root cause, confirmed by direct inspection: ``_detect_halfway_line_angle``'s
+  ``minLineLength`` (a fraction of the circle's radius) was too strict --
+  the real halfway line's longest unbroken Hough-detected segment near the
+  circle was consistently shorter than required (players standing on the
+  line, motion blur, and Hough's own segmentation all fragment a long
+  line), so detection silently failed on every tested frame and fell back
+  to a hardcoded 0.0-radian default with no warning. Fixed on two fronts:
+  a looser, empirically-retested ``minLineLength``, and no longer falling
+  back to an arbitrary guess when there's truly no signal (skips the frame
+  instead, consistent with this project's "don't guess when unsure" rule
+  elsewhere).
 """
 
 from __future__ import annotations
@@ -130,13 +145,27 @@ def _detect_center_circle(
 def _detect_halfway_line_angle(
     line_mask: npt.NDArray[np.uint8], center: Point, radius: float
 ) -> float | None:
-    """Angle (radians, mod pi) of the line through the circle, if found."""
+    """Angle (radians, mod pi) of the line through the circle, if found.
+
+    ``minLineLength=radius*0.7``, not ``radius*1.3`` as an earlier version
+    had it -- found via a real, confirmed bug: on real footage, the actual
+    halfway line's longest unbroken Hough-detected segment near the circle
+    was ~0.89x the circle's semi-major radius (players standing on the
+    line, motion blur, and Hough's own probabilistic segmentation all
+    fragment a long line into shorter aligned pieces rather than one
+    continuous one) -- so the stricter 1.3x threshold rejected every real
+    candidate outright on every tested frame, silently returning None
+    every time. Confirmed by lowering the threshold and checking that a
+    strong, consistent, real-line-passing-through-the-circle candidate
+    was recovered on all 5 frames tested (this is empirically retested,
+    not just theoretically justified).
+    """
     lines = cv2.HoughLinesP(
         line_mask,
         1,
         np.pi / 180,
         threshold=80,
-        minLineLength=max(10, int(radius * 1.3)),
+        minLineLength=max(10, int(radius * 0.7)),
         maxLineGap=20,
     )
     if lines is None:
@@ -144,7 +173,16 @@ def _detect_halfway_line_angle(
 
     cx, cy = center
     best_angle: float | None = None
-    best_dist = radius * 0.6
+    # Tightened from 0.6x after loosening minLineLength above (see that
+    # change's note) surfaced a real confound: a wide, flattened ellipse's
+    # own boundary (the near-straight arc along its top/bottom, typical for
+    # a broadcast-projected center circle) can itself register as a
+    # Hough candidate passing within 0.6x of the center. Real halfway-line
+    # detections across 5 real frames all measured well under 0.1x
+    # (6.7-39.3px against a ~530px radius); the ellipse-boundary artifact
+    # measured ~0.33x on a synthetic test -- a wide margin between the two,
+    # not a knife-edge tuning.
+    best_dist = radius * 0.15
     # HoughLinesP's output shape varies by OpenCV build ((N,1,4) vs (N,4)).
     for x1, y1, x2, y2 in lines.reshape(-1, 4):
         num = abs((y2 - y1) * cx - (x2 - x1) * cy + x2 * y1 - y2 * x1)
@@ -220,6 +258,7 @@ class PitchKeypointCalibrator:
         """
         rejected_as_inconsistent = 0
         rejected_as_not_pitch = 0
+        rejected_as_no_angle = 0
         resolved_this_call = 0
         for local_idx, frame in enumerate(frames):
             if grass_fraction(frame) < self.min_grass_fraction:
@@ -250,8 +289,18 @@ class PitchKeypointCalibrator:
             raw_angle = _detect_halfway_line_angle(line_mask, (cx, cy), semi_major)
             if raw_angle is not None:
                 angle = _closest_equivalent_angle(raw_angle, self._previous_angle)
+            elif self._previous_angle is not None:
+                angle = self._previous_angle
             else:
-                angle = self._previous_angle if self._previous_angle is not None else 0.0
+                # No line detected on this frame, and no previous frame's angle to
+                # fall back on -- a real bug used to default to 0.0 here (an
+                # arbitrary, unverified guess), confirmed to actively produce a
+                # ~90-degree-wrong transform on real footage (see module docstring's
+                # halfway-line-angle-detection note). Skipping the frame entirely is
+                # consistent with this project's "don't guess when unsure" rule
+                # applied everywhere else (jersey OCR, aggregator min_votes).
+                rejected_as_no_angle += 1
+                continue
             self._previous_angle = angle
 
             psi = math.pi / 2 - angle
@@ -264,11 +313,13 @@ class PitchKeypointCalibrator:
         logger.info(
             "Dynamic pitch calibration: found the center circle in %d/%d frames "
             "(%d rejected outright as not-enough-pitch-visible, %d more rejected as "
-            "size-inconsistent with the previous detection)",
+            "size-inconsistent with the previous detection, %d more rejected for no "
+            "resolvable halfway-line angle and no previous frame to fall back on)",
             resolved_this_call,
             len(frames),
             rejected_as_not_pitch,
             rejected_as_inconsistent,
+            rejected_as_no_angle,
         )
 
     def transform_point(self, point: Point, frame_idx: int = 0) -> Point | None:

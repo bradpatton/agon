@@ -94,6 +94,40 @@ class TestPitchKeypointCalibrator:
 
         assert calibrator.transform_point((400, 300), frame_idx=0) is None
 
+    def test_skips_the_frame_when_no_halfway_line_and_no_previous_angle(self):
+        # Regression test: a real bug on real footage -- when the halfway
+        # line couldn't be detected on the very first frame (nothing to
+        # fall back on), this used to silently default to angle=0.0 (an
+        # arbitrary guess), which produced a transform rotated ~90 degrees
+        # from correct on real footage. A frame with a circle but no line
+        # at all should now resolve nothing, not guess.
+        frame = np.zeros((600, 800, 3), dtype=np.uint8)
+        frame[:] = (0, 255, 0)
+        cv2.ellipse(frame, (400, 300), (180, 60), 0, 0, 360, (255, 255, 255), 3)
+
+        calibrator = PitchKeypointCalibrator()
+        calibrator.calibrate([frame])
+
+        assert calibrator.transform_point((400, 300), frame_idx=0) is None
+
+    def test_recovers_angle_from_a_shorter_fragmented_halfway_line(self):
+        # Regression test for the real minLineLength bug: on real footage,
+        # the halfway line's longest unbroken detected segment was ~0.89x
+        # the circle's semi-major radius, well under the old 1.3x
+        # requirement -- silently rejected every real candidate. This
+        # frame's line (length ~150, semi_major=180) sits in exactly that
+        # gap: below the old 1.3x=234 threshold, above the new 0.7x=126
+        # one, so it only resolves with the fix in place.
+        frame = np.zeros((600, 800, 3), dtype=np.uint8)
+        frame[:] = (0, 255, 0)
+        cv2.ellipse(frame, (400, 300), (180, 60), 0, 0, 360, (255, 255, 255), 3)
+        cv2.line(frame, (325, 300), (475, 300), (255, 255, 255), 2)
+
+        calibrator = PitchKeypointCalibrator()
+        calibrator.calibrate([frame])
+
+        assert calibrator.transform_point((400, 300), frame_idx=0) is not None
+
 
 class TestInverseTransformPoint:
     """Uses a real calibrate() call against a synthetic pitch frame (grass

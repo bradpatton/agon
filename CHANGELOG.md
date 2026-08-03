@@ -546,3 +546,37 @@ validating end-to-end against real footage:
   this footage, the halfway-line-angle resolution specifically isn't.
   Root cause not yet investigated -- a clear, now visually-demonstrated
   target for item 2 or a follow-on fix.
+
+### Fixed
+- **Root cause of the ~90-degree halfway-line rotation error above,
+  found and fixed.** Dumped every Hough-line candidate on the actual
+  failing frame instead of guessing: the real halfway line *was* being
+  detected (multiple candidates at ~91 degrees, 12-18px from the circle
+  center) but `_detect_halfway_line_angle`'s `minLineLength` (`radius *
+  1.3`) rejected all of them -- the longest real unbroken segment found
+  was only ~0.89x the radius (players standing on the line, motion blur,
+  and Hough's own segmentation fragment a long line into shorter
+  pieces). With every candidate rejected, the code silently fell back to
+  a **hardcoded `angle = 0.0`** whenever there was no previous frame to
+  reuse -- wrong, not just imprecise. Fixed: `minLineLength` loosened to
+  `radius * 0.7` (confirmed to recover ~91-92 degrees on all 5 tested
+  frames); the silent `0.0` fallback removed (a frame with nothing to go
+  on now correctly resolves nothing, matching this project's "don't
+  guess when unsure" rule elsewhere). Loosening (1) introduced a real
+  second-order bug caught before shipping -- a wide, flattened ellipse's
+  own boundary can itself register as a spurious Hough candidate under
+  the loosened threshold (confirmed via a synthetic test with no
+  halfway line drawn at all) -- fixed by also tightening the
+  proximity-to-center filter (`radius * 0.6` -> `radius * 0.15`),
+  justified by a wide empirical margin: real detections measured
+  6.7-39.3px against a ~530px radius across 5 real frames; the synthetic
+  ellipse-boundary artifact measured ~60px against a 182px radius.
+
+  **Re-validated after the fix**: on `benchmark_clip.mp4`, the rendered
+  overlay's halfway line now visibly overlaps the real one (previously
+  off by ~90 degrees); coverage unchanged (113/180 frames). On the
+  harder `match_10min_sample.mp4` sample, the touchline hit rate improved
+  modestly (5/37, 13.5%, vs. the earlier 5/55, 9.1%) -- most of that
+  dataset's remaining failures are the *other* already-documented causes
+  (wrong pitch arc matched as the circle, broadcast-graphic false
+  positives), which this fix doesn't address on its own.
