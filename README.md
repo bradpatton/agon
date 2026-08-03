@@ -186,25 +186,45 @@ imgsz=640, dynamic=False)`.
   combined SoccerNet sources (`scripts/convert_soccernet_gsr_to_calibration.py`,
   `scripts/convert_soccernet_calibration_to_pixels.py`) but the model itself
   doesn't yet.
-- **Jersey number recognition works end-to-end but doesn't generalize
-  well yet — treat as experimental, off by default.** Training on the
-  corrected (GSR-2025-primary) data completed and a real ONNX checkpoint
-  exists (`models/runs/train/jersey-gsr/weights/`). `agon.jersey.
-  OnnxJerseyClassifier` has been empirically validated against
-  Ultralytics' own reference output (32/32 label matches on real crops —
-  a preprocessing bug found by that check is fixed, see CHANGELOG), and
-  the full pipeline (detection → tracking → track-level
-  confidence-weighted aggregation → annotated video, labeled `"12 (3)"` —
-  predicted jersey number, track_id in parentheses) has now been run
-  end-to-end against real broadcast footage outside the model's training
-  data. Result: it's confidently wrong on that footage — a real player's
-  actual #12 shirt was predicted as #36 with up to 98% aggregated
-  confidence. This is a domain-generalization gap (SoccerNet's own
-  broadcast footage vs. a visually different broadcast), not a bug in
-  the aggregation or ONNX-inference code, both of which check out
-  correctly. `PipelineConfig.jersey_model_path` enables it, but it's
-  opt-in and off by default for exactly this reason — improving it
-  further would mean more/more-varied training data, not a code fix.
+- **Jersey number recognition now uses OCR (EasyOCR), not a trained
+  classifier — the classifier is kept but discouraged.** The original
+  approach (`agon.jersey.OnnxJerseyClassifier`, a classifier trained on
+  SoccerNet crops) was root-caused to a real, confirmed data problem:
+  SN-GSR-2025's jersey label is assigned per *track*, not per frame, so a
+  large fraction of training crops show no visible number at all while
+  being confidently labeled with a real digit anyway. Its training-time
+  validation accuracy (2.4% top1) was actually *worse* than trivially
+  guessing the most common class (16.4%) — see CHANGELOG for the full
+  diagnosis. `agon.jersey.ocr_reader.EasyOcrJerseyReader` replaces it: a
+  pretrained, general-purpose text reader, no training on this project's
+  noisy labels at all. Validated against real crops: 93-100% confidence
+  on clearly-visible numbers, correctly abstains when the number isn't
+  visible — but real misreads do still happen even at high confidence
+  (a 93%-confidence 36→35 misread was found), so
+  `agon.jersey.aggregator` now also requires several frames to agree
+  (`jersey_min_votes`, default 2) before trusting a track's answer, not
+  just one confident read. `PipelineConfig.jersey_backend` selects
+  `"off"` (default) / `"ocr"` (recommended) / `"onnx"` (the old
+  classifier). Needs the `[train]` extra (`easyocr` pulls in torch).
+  Real before/after: the specific real player the old classifier
+  confidently mislabeled #36 (actually wearing #12) now correctly comes
+  out as **12** after re-running the full pipeline end-to-end with the
+  OCR backend — confirmed against the same track, same crop.
+- **Pitch-position coverage measured directly — meaningfully
+  incomplete, with a clear cheap improvement identified but not yet
+  built.** Running the same real clip through both calibrators: the
+  default static one (`ViewTransformer`, one fixed homography for the
+  whole clip) covered only 34.4% of player detections with a real pitch
+  position; the dynamic one (`PitchKeypointCalibrator`, per-frame
+  center-circle detection) covered 56.9%. The two mostly fail on
+  *different* frames, not the same ones — a simple hybrid (try dynamic,
+  fall back to static) would cover 73.5% using calibrators that already
+  exist, no new CV/ML work. Not yet implemented. See CHANGELOG and the
+  project plan for the fuller prioritized list (hybrid fallback, a full
+  multi-point homography instead of the dynamic calibrator's
+  similarity-transform approximation, camera-motion-compensated
+  carry-forward, a real accuracy-measurement harness against known pitch
+  dimensions, and the already-planned trained keypoint model).
 
 ## Training / fine-tuning
 

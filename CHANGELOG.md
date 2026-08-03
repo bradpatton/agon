@@ -354,3 +354,77 @@ validating end-to-end against real footage:
   (different league, kit designs, camera/lighting) -- a domain-gap
   problem, not a code bug. Flagged as a real, open limitation rather than
   worked around.
+
+### Fixed
+- **Root cause of the jersey classifier's near-random accuracy, found by
+  checking the raw SoccerNet label files directly rather than assuming
+  the earlier "domain gap" diagnosis was the whole story.** Confirmed
+  across 167 real player tracks (8 sequences): `attributes.jersey` in
+  SN-GSR-2025 is assigned per *track*, not per frame -- every annotation
+  instance of a track carries the same value regardless of whether the
+  number is visible in that specific frame (zero tracks showed more than
+  one distinct value). Pulled real examples confirming this in practice:
+  a crop labeled "8" with the player facing forward and no number visible
+  at all, sitting next to a crop labeled "8" with the number clearly
+  printed on the back. A large fraction of the ~630K training crops teach
+  the classifier to associate irrelevant visual noise (pose, kit color,
+  background) with arbitrary digits -- this, not domain gap, is why
+  training-time validation accuracy (2.41% top1) was *worse* than a
+  trivial "always guess the most common class" baseline (16.4%).
+- **Replaced the from-scratch classifier with EasyOCR**
+  (`agon.jersey.ocr_reader.EasyOcrJerseyReader`), a pretrained
+  general-purpose scene-text-recognition model with no training on this
+  project's noisy labels at all. `PipelineConfig.jersey_backend` selects
+  `"off"` (default) / `"ocr"` (recommended) / `"onnx"` (the old
+  classifier, kept for existing checkpoints, documented as not
+  recommended). Validated against real crops with known ground truth:
+  correct reads at 93-100% confidence on clearly-visible numbers, and
+  correctly returned nothing at all on a crop where the player faced away
+  -- exactly the "only label if confident" behavior needed. Real,
+  observed failure modes: a 93%-confidence misread (true 36 read as 35,
+  a classic 6/5 digit confusion) and lower-confidence misreads on
+  two-digit numbers -- confidence alone doesn't guarantee correctness.
+- `agon.jersey.aggregator.aggregate_track_jersey_numbers` gained
+  `min_votes` (`PipelineConfig.jersey_min_votes`, default 2): the winning
+  candidate must be predicted by at least this many separate frames, not
+  just clear a confidence threshold on one. Directly motivated by the
+  93%-confidence single-frame misread above -- `min_confidence` alone
+  wouldn't have caught it, since 0.93 clears any reasonable threshold.
+  Requiring a second frame to agree is cheap for any track spanning more
+  than a couple of frames (the normal case) and directly protects against
+  this exact failure mode.
+- **Full pipeline, end-to-end, re-run against the exact real player the
+  old classifier got wrong.** Same track (`benchmark_clip.mp4`, track_id
+  3, the player independently confirmed by eye to be wearing a real #12
+  shirt) that the old `OnnxJerseyClassifier` confidently mislabeled #36:
+  re-processed the whole clip through the full pipeline (detection →
+  tracking → OCR jersey reading → track-level aggregation) with
+  `jersey_backend="ocr"`, and this exact track now correctly comes out as
+  **12**. Confirmed it's the same physical player, not a coincidence or a
+  different track_id, by re-pulling the crop from the new run's own
+  bounding box. 17/43 player tracks in this short (12s) clip cleared both
+  the confidence and `min_votes` thresholds -- the rest legitimately
+  never showed a clearly-readable number, which is the intended "don't
+  guess" behavior, not a shortfall. Run on GPU (`--gpus all`) for speed
+  -- EasyOCR runs one full forward pass per player per frame, ~66 seconds
+  for 180 frames vs. an estimated ~an hour on CPU for the same clip.
+
+### Investigated
+- **Pitch-position (`position_pitch_m`) coverage, measured directly
+  rather than assumed.** Ran the same real clip (`benchmark_clip.mp4`)
+  through both calibrators: static (`ViewTransformer`, one fixed
+  homography for the whole clip) covered only 34.4% of player detections
+  with a non-null pitch position; dynamic (`PitchKeypointCalibrator`,
+  per-frame center-circle detection) covered 56.9% -- meaningfully
+  better, but still leaves nearly half of all detections uncalibrated.
+  Checked whether the two calibrators fail on the *same* frames or
+  *different* ones: mostly different -- a simple hybrid (try dynamic,
+  fall back to static) would cover 73.5% of the same detections, more
+  than double the static-only baseline, using two calibrators that
+  already exist with zero new CV/ML work. Not yet implemented -- see the
+  response in conversation for the full prioritized list of proposed
+  pitch-accuracy improvements (hybrid fallback, multi-feature full
+  homography instead of a similarity transform, camera-motion-compensated
+  carry-forward between circle detections, a real accuracy-measurement
+  harness against known pitch dimensions, and the already-planned trained
+  keypoint model).

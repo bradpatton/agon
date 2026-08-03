@@ -294,16 +294,21 @@ agon --input <video> --model models/best.onnx \
 - **Pitch calibration model**: not built yet (only the data-prep scripts
   exist, now fed by two sources — see Step 3). Detection + jersey number
   training are the complete, validated, trainable paths today.
-- **Jersey classifier accuracy at the aggregated-track level is
-  unmeasured.** Training, ONNX export, and single-frame inference
-  (`agon.jersey.OnnxJerseyClassifier`) are done, wired into the pipeline
-  via `PipelineConfig.jersey_model_path`/`jersey_min_confidence`, and
-  empirically validated against Ultralytics' own reference output (see
-  `scripts/validate_jersey_onnx.py` below) — but the track-level
-  confidence-weighted aggregation this feeds
-  (`agon.jersey.aggregate_track_jersey_numbers`) hasn't yet been measured
-  end-to-end against real tracked footage with known ground-truth jersey
-  numbers.
+- **The trained jersey classifier (`OnnxJerseyClassifier`) is not
+  recommended — use `PipelineConfig.jersey_backend = "ocr"` instead.**
+  Root cause found: SN-GSR-2025's `attributes.jersey` label is assigned
+  per *track*, not per frame, so a large fraction of training crops show
+  no visible number at all while being confidently labeled with a real
+  digit anyway. Training-time validation accuracy (2.4% top1) was
+  actually worse than trivially guessing the most common class (16.4%).
+  `agon.jersey.ocr_reader.EasyOcrJerseyReader` (needs the `[train]`
+  extra) replaces it with a pretrained scene-text reader that needs no
+  training on this project's data at all — validated at 93-100%
+  confidence on real, clearly-visible crops, correctly abstaining when
+  the number isn't visible. The `onnx` backend is kept only for anyone
+  with an existing checkpoint; the training scripts and
+  `scripts/validate_jersey_onnx.py` below are still accurate for that
+  path, just not the recommended one anymore.
 - **Frame-filter clock-reliability issue** (unrelated to training, but
   relevant if you also run the main pipeline here): known limitation,
   queued for a future fix — see the project plan.
