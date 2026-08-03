@@ -27,7 +27,7 @@ def draw_ellipse(
     track_id: int | None = None,
     jersey_number: int | None = None,
 ) -> Frame:
-    """``jersey_number`` (from ``PipelineConfig.jersey_model_path``'s
+    """``jersey_number`` (from the active ``PipelineConfig.jersey_backend``'s
     aggregated prediction, if configured) becomes the primary label with
     the tracker's own ``track_id`` alongside it in parentheses, e.g.
     "12 (3)" -- so a viewer can visually cross-check the model's

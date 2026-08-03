@@ -184,10 +184,18 @@ def _build_team_classifier(
 
 
 def _build_jersey_classifier(config: PipelineConfig) -> JerseyClassifier | None:
-    """None (default) when config.jersey_model_path is unset -- jersey
+    """None when config.jersey_backend == 'off' (the default) -- jersey
     classification is entirely opt-in, matching clock_reader's pattern."""
-    if config.jersey_model_path is None:
+    if config.jersey_backend == "off":
         return None
+
+    if config.jersey_backend == "ocr":
+        from agon.jersey.ocr_reader import EasyOcrJerseyReader
+
+        return EasyOcrJerseyReader()
+
+    if config.jersey_model_path is None:
+        raise ValueError("jersey_backend='onnx' requires jersey_model_path to be set.")
 
     from agon.jersey.onnx_classifier import OnnxJerseyClassifier
 
@@ -199,6 +207,7 @@ def _assign_jersey_numbers(
     jersey_classifier: JerseyClassifier,
     video_frames: list[Frame],
     min_confidence: float,
+    min_votes: int = 1,
 ) -> None:
     """Runs jersey_classifier.classify() once per player/goalkeeper track
     per frame, aggregates each track's predictions across every frame it
@@ -214,7 +223,9 @@ def _assign_jersey_numbers(
             prediction = jersey_classifier.classify(video_frames[frame_num], track["bbox"])
             predictions_by_track.setdefault(player_id, []).append(prediction)
 
-    aggregated = aggregate_track_jersey_numbers(predictions_by_track, min_confidence=min_confidence)
+    aggregated = aggregate_track_jersey_numbers(
+        predictions_by_track, min_confidence=min_confidence, min_votes=min_votes
+    )
 
     for player_track in tracks["players"]:
         for player_id, track in player_track.items():
@@ -423,7 +434,11 @@ def run_pipeline(
     jersey_classifier = _build_jersey_classifier(config)
     if jersey_classifier is not None:
         _assign_jersey_numbers(
-            tracks, jersey_classifier, video_frames, min_confidence=config.jersey_min_confidence
+            tracks,
+            jersey_classifier,
+            video_frames,
+            min_confidence=config.jersey_min_confidence,
+            min_votes=config.jersey_min_votes,
         )
 
     if output_video_path is not None:

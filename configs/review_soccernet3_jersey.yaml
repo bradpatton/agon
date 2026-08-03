@@ -1,8 +1,8 @@
-# Example config for reviewing the soccernet-3 detector + jersey-gsr
-# classifier together against real footage, with the video labels visually
+# Example config for reviewing the soccernet-3 detector + OCR-based jersey
+# reading together against real footage, with the video labels visually
 # cross-checkable (see draw_ellipse's "12 (3)" jersey/track_id format).
-# Adjust the checkpoint paths below to whatever's actually under models/
-# on this machine -- these two happen to be what's there as of writing.
+# Adjust the checkpoint path below to whatever's actually under models/
+# on this machine -- soccernet-3 happens to be what's there as of writing.
 pipeline:
   detection_confidence: 0.1
   detection_batch_size: 20
@@ -15,5 +15,6 @@ pipeline:
   frame_filter_mode: "off"
   min_grass_fraction: 0.35
   clock_calibration_path: null
-  jersey_model_path: "models/runs/train/jersey-gsr/weights/best.onnx"
+  jersey_backend: "ocr" # needs the [train] extra (pulls in easyocr + torch)
   jersey_min_confidence: 0.5
+  jersey_min_votes: 2

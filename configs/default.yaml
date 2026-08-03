@@ -10,3 +10,6 @@ pipeline:
   frame_filter_mode: "off" # off | tag | strip -- see agon.broadcast
   min_grass_fraction: 0.35
   clock_calibration_path: null # path to a ClockCalibrationConfig JSON
+  jersey_backend: "off" # off | ocr (recommended, needs [train] extra) | onnx (see agon.jersey.ocr_reader)
+  jersey_min_confidence: 0.5
+  jersey_min_votes: 2

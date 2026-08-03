@@ -38,14 +38,18 @@ dependencies = [
 [project.optional-dependencies]
 # Torch-backed detector (agon.detection.tracker.UltralyticsDetector),
 # BoT-SORT tracking (agon.detection.botsort_tracker.BoTSORTTracker),
+# OCR-based jersey number reading (agon.jersey.ocr_reader.EasyOcrJerseyReader),
 # and training/fine-tuning workflows. Not needed for the default onnxruntime
 # runtime path -- see the Modernization notes in the project plan for why
-# torch isn't a core dependency here. boxmot (BoT-SORT) imports torch
-# unconditionally at import time even in motion-only mode, so it lives here
-# too, not as a separate lighter extra.
+# torch isn't a core dependency here. boxmot (BoT-SORT) and easyocr both
+# import torch unconditionally at import time, so they live here too, not as
+# separate lighter extras.
 train = [
     "ultralytics>=8.3",
     "boxmot>=19.0",
+    # agon.jersey.ocr_reader.EasyOcrJerseyReader -- see that module's
+    # docstring for why OCR replaced the from-scratch-trained classifier.
+    "easyocr>=1.7",
     # scripts/train_detector.py's ONNX export step (model.export(format="onnx")).
     # Ultralytics auto-installs these on first use if missing, but that means a
     # mid-training-run pip install requiring internet access on whatever machine

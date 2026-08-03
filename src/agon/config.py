@@ -119,19 +119,42 @@ class PipelineConfig(BaseModel):
     game_clock_s tagging and for telling replays apart from live play in
     frame_filter_mode; without it, frame_filter can only distinguish
     graphics/ads (no pitch visible) from everything else."""
+    jersey_backend: Literal["off", "ocr", "onnx"] = "off"
+    """Which per-frame jersey-number reader to use, if any -- output
+    always goes through agon.jersey.aggregator before being trusted (see
+    that module's docstring). 'off' (default): jersey classification is
+    skipped entirely and every ObjectRecord.jersey_number stays null.
+    'ocr' (recommended): agon.jersey.ocr_reader.EasyOcrJerseyReader --
+    pretrained scene-text OCR, no jersey_model_path needed, needs the
+    [train] extra (pulls in torch via easyocr). 'onnx':
+    agon.jersey.onnx_classifier.OnnxJerseyClassifier, a from-scratch
+    classifier trained on this project's own crops -- requires
+    jersey_model_path. Not recommended: empirically scored *worse* than a
+    trivial majority-class baseline (2.4% vs 16.4% top1 accuracy) because
+    SN-GSR-2025's jersey label is assigned per track, not per frame,
+    poisoning a large fraction of the training crops with a confident
+    label the image doesn't actually show -- see agon.jersey.ocr_reader's
+    docstring for the full diagnosis. Kept available for anyone with an
+    existing checkpoint, not as a recommended default."""
     jersey_model_path: str | None = None
     """Path to an ONNX jersey-number classifier exported by
     scripts/train_jersey_classifier.py --export-onnx (a classes.json
-    sidecar must sit alongside it -- see agon.jersey.OnnxJerseyClassifier).
-    None (default): jersey classification is skipped entirely and every
-    ObjectRecord.jersey_number stays null, same as before this existed."""
+    sidecar must sit alongside it). Only used when jersey_backend='onnx';
+    required in that case."""
     jersey_min_confidence: float = 0.5
     """Per-frame confidence threshold applied during track-level
     aggregation (see agon.jersey.aggregator) -- frames below this are
     dropped before voting, not just down-weighted. Single-frame jersey
-    classification is unreliable by the underlying task's own nature (see
-    that module's docstring), so this default is deliberately not
-    permissive."""
+    reading is unreliable by the underlying task's own nature (see that
+    module's docstring), so this default is deliberately not permissive."""
+    jersey_min_votes: int = 2
+    """Minimum number of separate frames that must agree on a track's
+    winning jersey number before it's trusted (agon.jersey.aggregator's
+    min_votes) -- a real, observed failure mode motivated this: a
+    93%-confidence single-frame misread during validation, where
+    min_confidence alone wouldn't have caught it. Requiring corroboration
+    from a second frame is cheap for any track that appears in more than
+    a couple of frames (the normal case)."""
 
 
 class Settings(BaseSettings):
