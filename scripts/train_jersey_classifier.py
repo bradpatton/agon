@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -86,8 +87,10 @@ def parse_args() -> argparse.Namespace:
         "--workers",
         type=int,
         default=None,
-        help="DataLoader worker processes (ultralytics default: 8). Lower on a small-VRAM "
-        "GPU that OOMs partway through training -- see train_detector.py's docstring.",
+        help="DataLoader worker processes. Default: auto-detect from available *system* RAM "
+        "(see _auto_workers), not just a fixed number -- ultralytics' own fixed default (8) "
+        "OOM'd a real run (host RAM, not GPU VRAM -- the kernel's OOM killer, not a CUDA "
+        "error) on this exact dataset. Pass this explicitly to override in either direction.",
     )
     parser.add_argument("--project", type=Path, default=Path("runs/train"))
     parser.add_argument("--name", type=str, default="jersey")
@@ -119,6 +122,38 @@ def _auto_device() -> str | None:
     if count <= 1:
         return None
     return ",".join(str(i) for i in range(count))
+
+
+def _auto_workers(gb_per_worker: float = 2.0, reserve_gb: float = 3.0) -> int | None:
+    """DataLoader worker count scaled to available *system* RAM -- see
+    train_detector.py's docstring for the full reasoning (this project's
+    real OOM incident happened on *this* script, training on a
+    1.29M-image dataset). Same conservative defaults and same real
+    limitation: checks memory available once, at start, not growth over
+    a multi-hour run. Returns None (ultralytics' own default) if
+    ``psutil`` isn't importable (in practice always available -- see
+    that docstring)."""
+    try:
+        import psutil
+    except ImportError:
+        return None
+
+    available_gb = psutil.virtual_memory().available / (1024**3)
+    cpu_count = os.cpu_count() or 1
+    budget_gb = max(0.0, available_gb - reserve_gb)
+    memory_based = int(budget_gb // gb_per_worker)
+    return max(0, min(cpu_count, memory_based))
+
+
+def _resolve_workers(explicit: int | None) -> int:
+    """explicit (--workers) always wins; otherwise _auto_workers(),
+    falling back to ultralytics' own fixed default only if psutil is
+    missing. Checks ``is not None`` throughout, not ``or`` -- 0 is a
+    real, valid _auto_workers() result, not a falsy "unset"."""
+    if explicit is not None:
+        return explicit
+    auto = _auto_workers()
+    return auto if auto is not None else 8  # ultralytics' own default
 
 
 def _resolve_batch(batch: int, device: str | None) -> int:
@@ -158,12 +193,15 @@ def main() -> None:
         print(f"Resuming from {args.resume} (ignoring --data/--imgsz/--batch/etc.)")
         model = YOLO(str(args.resume))
         # --workers is a pure DataLoader setting (unlike --data/--imgsz, which must match
-        # the checkpoint's architecture) -- safe, and sometimes necessary, to override even
-        # on resume: this project hit a real host-RAM OOM kill caused by the checkpoint's
-        # own saved workers=8, which resume=True alone would otherwise silently repeat.
-        resume_kwargs = {"resume": True}
-        if args.workers is not None:
-            resume_kwargs["workers"] = args.workers
+        # the checkpoint's architecture) -- safe, and necessary, to override even on
+        # resume: this project hit a real host-RAM OOM kill caused by the checkpoint's own
+        # saved workers=8, which resume=True alone would otherwise silently repeat. Always
+        # re-running _resolve_workers() here (not blindly reusing the checkpoint's value)
+        # is deliberate.
+        resolved_workers = _resolve_workers(args.workers)
+        if args.workers is None:
+            print(f"Auto-detected workers={resolved_workers} based on available system RAM")
+        resume_kwargs = {"resume": True, "workers": resolved_workers}
         results = model.train(**resume_kwargs)
         _finish(model, results, args.export_onnx)
         return
@@ -182,7 +220,9 @@ def main() -> None:
     if args.device is None and device is not None:
         print(f"Auto-detected {device.count(',') + 1} GPUs, using device={device}")
 
-    workers = args.workers if args.workers is not None else 8  # ultralytics' own default
+    workers = _resolve_workers(args.workers)
+    if args.workers is None:
+        print(f"Auto-detected workers={workers} based on available system RAM")
     batch = _resolve_batch(args.batch, device)
 
     model = YOLO(args.base_model)

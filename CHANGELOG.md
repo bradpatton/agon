@@ -78,6 +78,23 @@ validating end-to-end against real footage:
 ## [Unreleased] - post-0.1.0
 
 ### Added
+- `--workers` in both training scripts now defaults to an auto-detected
+  value based on available *system* RAM (`_auto_workers`, using
+  `psutil`, already a transitive dependency via `ultralytics` -- no new
+  dependency needed) instead of Ultralytics' fixed default of 8 --
+  motivated by wanting the scripts to be safe by default on any future
+  machine (more/less RAM, different GPU count) without manual tuning,
+  not just the one machine this project happened to hit an OOM on.
+  Deliberately conservative (2GB/worker budget, 3GB reserved for the
+  main process before any of it goes to workers) since a slower run is
+  a minor cost and a run that gets killed hours in is not -- on the
+  actual machine/dataset that hit the original OOM (~13GB available
+  RAM), this computes 5 workers instead of the fixed 8 that crashed.
+  Explicit `--workers <N>` always overrides, including in `--resume`
+  mode (extends the existing override-on-resume mechanism). Real,
+  stated limitation: checks memory available once, at start, not growth
+  over a multi-hour run -- reduces OOM risk, doesn't guarantee against
+  it.
 - Streaming/chunked pipeline (`run_pipeline_streaming`, `--chunk-size`):
   bounded-memory processing of full-length matches, validated against a
   real ~108-minute match at native 1920x1080/50fps.

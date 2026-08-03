@@ -224,9 +224,11 @@ relative to the mounted `/app/models`.
   1. `-e PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` (already in the
      command above) — PyTorch's own fix for exactly this
      works-for-a-while-then-OOMs fragmentation pattern.
-  2. `--workers <N>` (e.g. `--workers 2`, default is Ultralytics' own `8`)
-     — fewer DataLoader worker processes means less pinned memory held
-     for prefetching at once.
+  2. `--workers <N>` — both training scripts now auto-detect a worker
+     count from available *system* RAM by default (not a fixed number —
+     see `_auto_workers` in either script), so this usually doesn't need
+     manual tuning at all; pass it explicitly only to go even lower than
+     the auto-detected value.
   3. A smaller fixed `--batch <N>` instead of AutoBatch, or a lower
      `--imgsz` (960 costs ~2.25x the memory of 640) if the GPU genuinely
      doesn't have the VRAM for 960px training even with 1-2 applied —
@@ -318,6 +320,15 @@ agon --input <video> --model models/best.onnx \
   Docker's default 64MB `/dev/shm` is too small for PyTorch's DataLoader
   workers. Add `--ipc=host` to the `docker run` command (Step 4 already
   has it; add it too if you've customized the command).
+- **Container exits with no error, just `Exited (137)`** (`docker ps -a`):
+  that's SIGKILL, almost always the Linux kernel's own OOM killer for
+  *system* RAM, not a CUDA/GPU error at all — confirm with `dmesg | grep
+  -i "out of memory\|oom"` on the host. Both training scripts now
+  auto-detect a safe `--workers` count from available RAM by default
+  (see the AutoBatch/`--workers` bullet under Step 4), which should
+  prevent this on its own; if you still hit it, pass `--workers` even
+  lower explicitly, or `--resume` from the last checkpoint once it's
+  resolved (both scripts support this).
 - **`onnxruntime...InvalidArgument: Got invalid dimensions`** at inference:
   `detection_imgsz` doesn't match the ONNX export resolution — fix per Step 5.
 - **Stale-cache crash** (`IndexError: list index out of range`) after
