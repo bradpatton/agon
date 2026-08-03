@@ -9,7 +9,7 @@ Each frame becomes one Ultralytics pose-format label: a single "pitch"
 object (class 0) whose bounding box covers every visible canonical
 keypoint, plus a fixed-length keypoint vector (see
 ``agon.geometry.pitch_keypoints.CANONICAL_KEYPOINTS`` for the order --
-46 keypoints, one per (line, endpoint) pair, straight lines only, see
+38 keypoints, one per (line, endpoint) pair, straight lines only, see
 that module's docstring for what's deliberately excluded and why).
 Keypoints not visible in a frame get visibility=0 (Ultralytics' "not
 labeled") and (0, 0) coordinates, matching the standard convention.

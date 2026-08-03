@@ -8,7 +8,7 @@ Needs the ``[train]`` extra: ``pip install 'agon[train]'`` (torch +
 ultralytics). Uses Ultralytics' pose-estimation training mode
 (``YOLO("*-pose.pt")``) rather than a custom heatmap-regression loop --
 the dataset already writes Ultralytics' own pose-label format (one
-"pitch" object per frame, a fixed 46-keypoint vector -- see
+"pitch" object per frame, a fixed 38-keypoint vector -- see
 ``agon.geometry.pitch_keypoints.CANONICAL_KEYPOINTS``), so this reuses the
 same library/checkpoint-management/export pattern as detection and jersey
 training (``train_detector.py``, ``train_jersey_classifier.py``) rather

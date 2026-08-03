@@ -592,7 +592,7 @@ validating end-to-end against real footage:
   camera angles are covered. Plus 17,309 more images from the legacy
   Calibration dataset.
 
-  `agon.geometry.pitch_keypoints`: 46 canonical real-world keypoints (21
+  `agon.geometry.pitch_keypoints`: 38 canonical real-world keypoints (21
   straight-line features' endpoints -- circles and crossbars deliberately
   excluded, see module docstring), with point order verified directly
   against real pixel data, not assumed. Verification found a real,
@@ -613,7 +613,10 @@ validating end-to-end against real footage:
   `train_detector.py`'s established pattern (auto-device, auto-workers,
   resume, ONNX export) using Ultralytics pose-estimation mode.
 
-  Status: a 1-epoch smoke test is running on real GPU hardware to
-  validate the pipeline before a full training run. The inference side
-  (`TrainedPitchCalibrator`) isn't built yet -- needs a real exported
-  model's actual output format, not just the training data.
+  Status: 1-epoch smoke test completed successfully on real GPU hardware
+  (training + validation against all 37,164 val images + ONNX export all
+  succeeded). A real 30-epoch run (imgsz=960) is now in progress in the
+  background, ~5 hours estimated. The inference side
+  (`TrainedPitchCalibrator`) isn't built yet -- deliberately deferred
+  until the real trained/exported model exists, since its ONNX
+  output-decoding needs to be verified against real output, not assumed.
