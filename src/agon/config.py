@@ -87,10 +87,16 @@ class PipelineConfig(BaseModel):
     team_kmeans_random_state: int = 0
     device: str | None = None
     """Inference device: 'cuda', 'mps', 'cpu', or None to auto-detect."""
-    calibration_mode: Literal["static", "dynamic"] = "static"
+    calibration_mode: Literal["static", "dynamic", "hybrid"] = "static"
     """'static' = ViewTransformer (one homography from CalibrationConfig).
     'dynamic' = PitchKeypointCalibrator (per-frame center-circle detection,
-    experimental classical-CV first cut -- see that class's docstring)."""
+    experimental classical-CV first cut -- see that class's docstring).
+    'hybrid' = HybridPitchCalibrator (tries dynamic first, falls back to
+    static per point) -- measured at 73.5% position coverage on a real
+    clip vs. 34.4%/56.9% for static/dynamic alone, since the two mostly
+    fail on different frames rather than the same ones. Recommended over
+    either alone when a calibration file is available (still needs one,
+    for the fallback)."""
     team_classifier: Literal["pixel", "embedding"] = "pixel"
     """'pixel' = TeamAssigner (raw jersey-crop pixel KMeans).
     'embedding' = EmbeddingTeamClassifier (small-CNN-embedding KMeans;

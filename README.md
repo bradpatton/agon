@@ -210,21 +210,26 @@ imgsz=640, dynamic=False)`.
   confidently mislabeled #36 (actually wearing #12) now correctly comes
   out as **12** after re-running the full pipeline end-to-end with the
   OCR backend — confirmed against the same track, same crop.
-- **Pitch-position coverage measured directly — meaningfully
-  incomplete, with a clear cheap improvement identified but not yet
-  built.** Running the same real clip through both calibrators: the
-  default static one (`ViewTransformer`, one fixed homography for the
-  whole clip) covered only 34.4% of player detections with a real pitch
-  position; the dynamic one (`PitchKeypointCalibrator`, per-frame
-  center-circle detection) covered 56.9%. The two mostly fail on
-  *different* frames, not the same ones — a simple hybrid (try dynamic,
-  fall back to static) would cover 73.5% using calibrators that already
-  exist, no new CV/ML work. Not yet implemented. See CHANGELOG and the
-  project plan for the fuller prioritized list (hybrid fallback, a full
-  multi-point homography instead of the dynamic calibrator's
-  similarity-transform approximation, camera-motion-compensated
-  carry-forward, a real accuracy-measurement harness against known pitch
-  dimensions, and the already-planned trained keypoint model).
+- **Pitch-position coverage improved with a new hybrid calibrator, but
+  absolute accuracy is still unverified against real ground truth.**
+  `calibration_mode: "hybrid"` (`agon.geometry.HybridPitchCalibrator`)
+  tries the dynamic per-frame calibrator first and falls back to the
+  static one per point — measured at 77.0% pitch-position coverage on a
+  real clip, vs. 34.4%/56.9% for static/dynamic alone (still `"static"`
+  by default; `"hybrid"` needs a calibration file too, for the fallback).
+  Separately, `scripts/measure_pitch_calibration_agreement.py`
+  cross-checks the two calibrators against each other and found a mean
+  65.79m disagreement on the same clip — but that clip's calibration
+  file is explicitly self-documented as "uncalibrated/approximate," so
+  this doesn't cleanly indict either calibrator's real accuracy, and
+  surfaced a genuine gap: **this project has no properly-annotated pitch
+  calibration file anywhere** to measure true accuracy against. See
+  CHANGELOG and the project plan's Phase 12 for the fuller prioritized
+  list of remaining improvements (a full multi-point homography instead
+  of the dynamic calibrator's similarity-transform approximation,
+  camera-motion-compensated carry-forward, a real
+  known-pitch-dimension accuracy harness, and the already-planned trained
+  keypoint model) — none of those four are built yet.
 
 ## Training / fine-tuning
 

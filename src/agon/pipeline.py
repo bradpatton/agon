@@ -48,6 +48,7 @@ from agon.export.writer import (
     write_schema_json,
 )
 from agon.geometry.bbox import Point
+from agon.geometry.hybrid_pitch_calibrator import HybridPitchCalibrator
 from agon.geometry.pitch_keypoint_calibrator import PitchKeypointCalibrator
 from agon.geometry.view_transformer import (
     ViewTransformer,
@@ -151,8 +152,16 @@ def _make_pitch_calibrator(calibration: CalibrationConfig, mode: str) -> PitchCa
     'dynamic' is a classical-CV first cut (center-circle detection), not a
     trained keypoint model -- see PitchKeypointCalibrator's docstring for
     what it actually solves and its real limitations before trusting its
-    output over the static calibration.
+    output over the static calibration. 'hybrid' (see
+    HybridPitchCalibrator) tries dynamic first and falls back to static
+    per point -- measured to cover meaningfully more real detections than
+    either alone, since the two mostly fail on different frames.
     """
+    if mode == "hybrid":
+        return HybridPitchCalibrator(
+            primary=PitchKeypointCalibrator(court_width_m=calibration.court_width_m),
+            fallback=ViewTransformer(calibration),
+        )
     if mode == "dynamic":
         return PitchKeypointCalibrator(court_width_m=calibration.court_width_m)
     return ViewTransformer(calibration)

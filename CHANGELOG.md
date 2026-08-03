@@ -421,10 +421,33 @@ validating end-to-end against real footage:
   *different* ones: mostly different -- a simple hybrid (try dynamic,
   fall back to static) would cover 73.5% of the same detections, more
   than double the static-only baseline, using two calibrators that
-  already exist with zero new CV/ML work. Not yet implemented -- see the
-  response in conversation for the full prioritized list of proposed
-  pitch-accuracy improvements (hybrid fallback, multi-feature full
-  homography instead of a similarity transform, camera-motion-compensated
-  carry-forward between circle detections, a real accuracy-measurement
-  harness against known pitch dimensions, and the already-planned trained
-  keypoint model).
+  already exist with zero new CV/ML work. Five improvements identified
+  and scoped in the project plan's Phase 12, priority order: hybrid
+  fallback, multi-feature full homography instead of a similarity
+  transform, camera-motion-compensated carry-forward between circle
+  detections, a real accuracy-measurement harness, and the already-planned
+  trained keypoint model.
+
+### Added
+- **`agon.geometry.hybrid_pitch_calibrator.HybridPitchCalibrator`**
+  (Phase 12 item 1): tries a primary `PitchCalibrator` per point, falls
+  back to a secondary when the primary returns None. Selectable via
+  `PipelineConfig.calibration_mode = "hybrid"` (dynamic primary, static
+  fallback). Re-validated on a fresh run against the same real clip:
+  77.0% pitch-position coverage (2228/2892 player detections), confirming
+  and slightly exceeding the 73.5% estimate above.
+- **`scripts/measure_pitch_calibration_agreement.py`** (Phase 12 item 4,
+  a simpler version of the originally-scoped harness -- the full
+  known-pitch-dimension version needs more detected features than exist
+  yet): runs the pipeline twice (static, dynamic) and cross-checks the
+  two independent calibrators' transformed positions against each other
+  on the same real (frame, track) points. Real result on
+  `benchmark_clip.mp4`: mean disagreement of 65.79m (n=587 overlapping
+  points) -- but that clip's calibration file is explicitly
+  self-documented as "UNCALIBRATED / APPROXIMATE," so this large number
+  is dominated by that already-known-bad static calibration, not
+  necessarily the dynamic calibrator's own accuracy. Real, useful finding
+  regardless: confirms concretely why that file was never trustworthy
+  (consistent with the previously-observed 100-200 km/h nonsense speeds),
+  and surfaced a genuine gap -- this project has no properly-annotated
+  pitch calibration file anywhere to run a clean accuracy check against.

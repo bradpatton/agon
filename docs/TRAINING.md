@@ -293,7 +293,12 @@ agon --input <video> --model models/best.onnx \
 
 - **Pitch calibration model**: not built yet (only the data-prep scripts
   exist, now fed by two sources — see Step 3). Detection + jersey number
-  training are the complete, validated, trainable paths today.
+  training are the complete, validated, trainable paths today. In the
+  meantime, `PipelineConfig.calibration_mode = "hybrid"` (a new
+  `HybridPitchCalibrator` combining the existing static/dynamic
+  calibrators) measurably improves pitch-position coverage (77.0% vs.
+  34.4%/56.9% for static/dynamic alone) without needing this model at
+  all — see the project plan's Phase 12.
 - **The trained jersey classifier (`OnnxJerseyClassifier`) is not
   recommended — use `PipelineConfig.jersey_backend = "ocr"` instead.**
   Root cause found: SN-GSR-2025's `attributes.jersey` label is assigned
