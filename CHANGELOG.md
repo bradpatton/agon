@@ -292,14 +292,29 @@ validating end-to-end against real footage:
   Dropped ~20K noisy crops; a fresh `jersey-gsr` training run is in
   progress on the cleaned data.
 
+- **`OnnxJerseyClassifier` preprocessing bug, found by the empirical
+  cross-check the previous entry flagged as outstanding**: ran 32 real
+  jersey crops (8 classes) through both `OnnxJerseyClassifier` and
+  `YOLO(best.pt).predict()` on the ML machine. Output format (assumed
+  post-softmax) was correct -- confirmed by reading Ultralytics'
+  `Classify.forward()`, which applies `softmax(1)` in export mode. But
+  preprocessing was wrong on two counts, both taken from assumption
+  rather than Ultralytics' actual `classify_transforms`: (1) it applied
+  ImageNet mean/std normalization, but Ultralytics' classification
+  pipeline uses `DEFAULT_MEAN=(0,0,0)`/`DEFAULT_STD=(1,1,1)` -- i.e. plain
+  `[0, 1]` scaling, no normalization at all; (2) it did a direct
+  stretch-resize to the target size, but Ultralytics does a shortest-edge
+  resize (preserving aspect ratio) followed by a center-crop for a square
+  target. Together these produced near-random predictions (3/32 label
+  matches, mean confidence gap 0.536 against the reference model). Fixed
+  both in `_preprocess()`; re-validated at 32/32 label matches, mean
+  confidence gap 0.0087 (float32 rounding-order noise between torch and
+  onnxruntime, not a remaining mismatch).
+
 ### Known limitations, honestly documented
-- `agon.jersey.onnx_classifier.OnnxJerseyClassifier`'s preprocessing
-  (ImageNet mean/std normalization, assumed-post-softmax ONNX output) has
-  **not been empirically cross-checked** against `YOLO(onnx_path).
-  predict()`'s own output on the same crops -- written before this
-  project's first jersey-classifier ONNX export finished training. Do
-  that check before trusting it in production; a preprocessing mismatch
-  degrades accuracy silently, unlike a shape mismatch.
+- `agon.jersey.onnx_classifier.OnnxJerseyClassifier` has now been
+  empirically validated (see the fix entry above) -- no longer an open
+  caveat.
 
 ### Verified
 - GPU passthrough (`docker run --gpus all`), confirmed end-to-end for the

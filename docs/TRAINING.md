@@ -180,6 +180,28 @@ namespace (PyTorch's own recommended fix) rather than trying to guess a
 `--shm-size` value that's enough for every batch size/resolution
 combination.
 
+**After training, validate the ONNX export against the reference model
+before trusting it.** `OnnxJerseyClassifier` reimplements Ultralytics'
+classification preprocessing by hand rather than calling Ultralytics
+itself, so a preprocessing mismatch would degrade accuracy silently — a
+real bug of exactly this kind was caught and fixed this way (see
+CHANGELOG). Run:
+```bash
+docker run --rm \
+  -v "$(pwd)/data:/app/data" -v "$(pwd)/models:/app/models" \
+  -v "$(pwd)/src:/app/src" -v "$(pwd)/scripts:/app/scripts" \
+  -w /app agon:train \
+  python scripts/validate_jersey_onnx.py \
+    --pt /app/models/runs/train/jersey-gsr/weights/best.pt \
+    --onnx /app/models/runs/train/jersey-gsr/weights/best.onnx \
+    --data /app/data/soccernet_jersey/train
+```
+A healthy result looks like every (or nearly every) sampled crop's ONNX
+prediction matching the reference model's prediction, with a small
+(<0.05) confidence gap. Wide disagreement or a large confidence gap means
+`OnnxJerseyClassifier._preprocess()` doesn't match this checkpoint's real
+preprocessing — fix that before using the export in the pipeline.
+
 **`--project /app/models/runs/train` is required, not optional.** Both
 scripts default `--project` to `runs/train`, a path relative to the
 container's working directory (`/app`) — that's `/app/runs/train`, which
@@ -272,11 +294,16 @@ agon --input <video> --model models/best.onnx \
 - **Pitch calibration model**: not built yet (only the data-prep scripts
   exist, now fed by two sources — see Step 3). Detection + jersey number
   training are the complete, validated, trainable paths today.
-- **Jersey classifier isn't wired into inference yet.** Training is done
-  and validated; `ObjectRecord.jersey_number` exists in the export schema
-  ready to receive it, but no pipeline code loads a trained jersey model
-  and calls it yet — a small follow-up once you have a checkpoint worth
-  wiring in.
+- **Jersey classifier accuracy at the aggregated-track level is
+  unmeasured.** Training, ONNX export, and single-frame inference
+  (`agon.jersey.OnnxJerseyClassifier`) are done, wired into the pipeline
+  via `PipelineConfig.jersey_model_path`/`jersey_min_confidence`, and
+  empirically validated against Ultralytics' own reference output (see
+  `scripts/validate_jersey_onnx.py` below) — but the track-level
+  confidence-weighted aggregation this feeds
+  (`agon.jersey.aggregate_track_jersey_numbers`) hasn't yet been measured
+  end-to-end against real tracked footage with known ground-truth jersey
+  numbers.
 - **Frame-filter clock-reliability issue** (unrelated to training, but
   relevant if you also run the main pipeline here): known limitation,
   queued for a future fix — see the project plan.

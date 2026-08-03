@@ -186,16 +186,21 @@ imgsz=640, dynamic=False)`.
   combined SoccerNet sources (`scripts/convert_soccernet_gsr_to_calibration.py`,
   `scripts/convert_soccernet_calibration_to_pixels.py`) but the model itself
   doesn't yet.
-- **Jersey number recognition, model not yet trained on clean data.** The
-  inference side is now built (`agon.jersey`: `OnnxJerseyClassifier` +
-  track-level confidence-weighted aggregation — see that module's
-  docstring for why single-frame classification alone is unreliable by
-  the underlying task's own nature, and `PipelineConfig.jersey_model_path`
-  to enable it), but no checkpoint has finished training on the corrected
-  (GSR-2025-primary) data yet — an earlier training pass surfaced real
-  data-quality issues (severe class imbalance, tracklet-level labels
-  applied to frames where the number isn't visible) that needed fixing
-  first. See the project plan for the full diagnosis.
+- **Jersey number recognition, real accuracy not yet re-measured on
+  cleaned data.** Training on the corrected (GSR-2025-primary) data
+  completed and a real ONNX checkpoint exists
+  (`models/runs/train/jersey-gsr/weights/`). `agon.jersey.
+  OnnxJerseyClassifier` (single-frame) has been empirically validated
+  against Ultralytics' own reference output (32/32 label matches on real
+  crops, see CHANGELOG) — a preprocessing bug (wrong normalization, wrong
+  resize) found by that check is fixed. What's still open: the underlying
+  per-frame top1/top5 accuracy this checkpoint reaches is expected to be
+  low by the task's own nature (see `agon.jersey`'s docstring on why
+  single-frame classification alone is unreliable here), and the
+  track-level confidence-weighted aggregation this is meant to feed
+  (`aggregate_track_jersey_numbers`) hasn't yet been measured end-to-end
+  against real tracked footage. `PipelineConfig.jersey_model_path` enables
+  it once ready.
 
 ## Training / fine-tuning
 
