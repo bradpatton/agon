@@ -181,11 +181,30 @@ imgsz=640, dynamic=False)`.
   `class` field and per-object structure are designed to extend to this
   later without a breaking change, but nothing is implemented yet. SoccerNet
   Action Spotting is the reference benchmark to build toward.
-- **Learned pitch calibration.** A trained keypoint model (see Pitch
-  calibration above) — training-data conversion scripts exist for two
-  combined SoccerNet sources (`scripts/convert_soccernet_gsr_to_calibration.py`,
-  `scripts/convert_soccernet_calibration_to_pixels.py`) but the model itself
-  doesn't yet.
+- **Learned pitch calibration — the model is trained, the inference
+  wiring isn't built yet.** A pose-estimation keypoint model (38 canonical
+  pitch points — line/box/goal-post endpoints, see
+  `agon.geometry.pitch_keypoints`) trained for 30 epochs on 82,945 frames
+  combined from SN-GSR-2025 and the legacy Calibration dataset: pose
+  mAP50 **0.842**, mAP50-95 **0.379** on the held-out validation set —
+  a real result, not a smoke test. Checkpoint and ONNX export exist
+  (`scripts/train_pitch_calibration.py`), but `TrainedPitchCalibrator`
+  (decode the model's keypoints → `cv2.findHomography` → satisfy the
+  `PitchCalibrator` protocol) isn't built yet, so nothing in the pipeline
+  uses this checkpoint today. Once it lands, it should also be the first
+  calibrator that produces a real projective homography (not just a
+  pixel↔pitch mapping) — see `agon.geometry.camera_pose` below, already
+  built and validated but currently unable to run against either existing
+  calibrator's output for the reasons documented there.
+- **Full 3D camera pose from a pitch homography** (`agon.geometry.camera_pose`):
+  given a real projective homography, recovers pan/tilt/roll/position/focal
+  length, not just a flat pixel↔pitch mapping — validated synthetically to
+  sub-millipixel accuracy. Not yet usable against either shipped calibrator:
+  `ViewTransformer`'s static homography is real but known-uncalibrated, and
+  `PitchKeypointCalibrator`'s similarity-transform output structurally
+  lacks the perspective information this needs (confirmed, not assumed —
+  see the module's own docstring). Waiting on `TrainedPitchCalibrator`
+  above to have a real projective homography to decompose.
 - **Jersey number recognition now uses OCR (EasyOCR), not a trained
   classifier — the classifier is kept but discouraged.** The original
   approach (`agon.jersey.OnnxJerseyClassifier`, a classifier trained on
@@ -269,7 +288,7 @@ one for new footage).
 
 ```bash
 uv sync --extra dev
-pytest                              # 94 tests, pure logic + synthetic inputs, no video/model needed
+pytest                              # 151 tests, pure logic + synthetic inputs, no video/model needed
 ruff check src/ tests/ && ruff format --check src/ tests/
 mypy src/agon
 pre-commit install                  # run the above automatically on commit

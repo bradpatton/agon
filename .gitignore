@@ -43,3 +43,13 @@ docker_output/
 
 # Notebook checkpoints
 .ipynb_checkpoints/
+
+# Local-only internal notes -- never publish (see the file itself for why).
+# Previously kept out of git purely by never `git add`ing it, which a stray
+# `git add -A`/`git add .` could silently break; ignored explicitly instead.
+docs/LEARNING_GUIDE.md
+
+# Ad-hoc local review/debug configs (e.g. configs/review_soccernet3_jersey.yaml,
+# committed by accident 2026-08-03 -- referenced a training-run name that only
+# exists on one machine, meaningless to anyone else cloning this repo).
+configs/review_*.yaml

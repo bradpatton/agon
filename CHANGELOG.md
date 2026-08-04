@@ -136,120 +136,6 @@ validating end-to-end against real footage:
   tracklet-based jersey number dataset, evenly sampled per tracklet).
   `prepare_training_data.py` rewritten to orchestrate all three sources.
 
-### Fixed
-- `OnnxDetector` always supported a configurable input resolution, but
-  nothing above it in the pipeline ever passed one through — inference
-  silently ran at 640x640 regardless of what resolution a checkpoint was
-  actually trained/exported at.
-- Pipeline defaulted `frame_rate` to a hardcoded 24fps instead of the
-  input video's actual fps, corrupting speed/distance/timestamp math and
-  the annotated video's playback speed on any non-24fps footage.
-- `IncrementalVideoWriter` didn't remove a stale file at the output path
-  first; macOS's AVFoundation backend refuses to open a `VideoWriter` at a
-  path that already exists instead of overwriting it.
-- `ViewTransformer`/`PitchKeypointCalibrator` crashed (`ValueError`) on a
-  NaN ball position (the ball never detected anywhere in a chunk).
-- `Dockerfile`'s `ENTRYPOINT` silently prepended itself to any command
-  passed to `docker run`, breaking every training-script invocation.
-- SoccerNet data-conversion scripts baked in absolute host paths (dataset
-  config and image symlinks), breaking the moment the same output
-  directory was mounted into a container at a different path.
-- `classify_frame` called OCR (~150ms) unconditionally on every frame
-  regardless of whether a frame had pitch visible at all — an unforced
-  multi-hour runtime for a 10-minute clip with clock-reading enabled.
-- SoccerNet's legacy Tracking/Calibration/Re-ID/Jersey-2023 datasets were
-  wrongly documented as broken — they were tested with the wrong password
-  (a personal NDA video-download password, not the generic public one
-  these specific datasets actually use); re-tested and confirmed working.
-- `docs/TRAINING.md`'s Docker volume mounts didn't match where the scripts
-  actually write: Step 3 mounted `/data` but `prepare_training_data.py`
-  writes under `/app/data` (relative to its own location in the image), so
-  downloaded/converted data never left the container and was lost on
-  `--rm`; Step 4 didn't override `train_detector.py`/
-  `train_jersey_classifier.py`'s default `--project runs/train` (also not
-  under any mounted volume), so a real training run would complete with
-  correct metrics and then lose every weight file the same way. Both fixed
-  by mounting `/app/data` and adding an explicit `--project
-  /app/models/runs/train`. Also added the previously-undocumented
-  prerequisite that `--gpus all` needs the NVIDIA Container Toolkit
-  installed and Docker configured for it beforehand — without it the
-  command fails outright, not just falls back to CPU.
-- `README.md`'s Docker development example was missing the `agon` command
-  name — since the image has no `ENTRYPOINT`, `docker run <image> --input
-  ...` tried to exec `--input` itself as the container's process and failed
-  immediately.
-- `huggingface_hub` and the `SoccerNet` pip package (used by
-  `download_soccernet_gsr.py`/`download_soccernet_legacy.py`) were never
-  declared as dependencies anywhere — interactive testing on dev machines
-  worked because they'd been manually `pip install`ed into a throwaway
-  venv, but a fresh `uv sync --extra train` (i.e. building the Docker
-  image from scratch) never installed them, so `prepare_training_data.py`
-  failed for every data source inside a real container. Found and fixed by
-  actually building the image fresh and running it, not just reasoning
-  through the dependency graph — added both to the `[train]` extra and
-  re-validated with a real download+convert run (2,719 images, matching
-  the earlier manually-tested count) confirming data now actually lands on
-  the host via the volume mount.
-- `docs/TRAINING.md`'s commands assumed a bash/zsh shell (`$(pwd)`, `\`
-  line continuation) with no mention of Windows — hit for real on an
-  actual ML machine running Command Prompt, where `$(pwd)` isn't expanded
-  at all and Docker fails with `includes invalid characters for a local
-  volume name`. Added a shell-substitution table (`%cd%`/`^` for
-  `cmd.exe`, `${PWD}`/backtick for PowerShell) and a Windows-specific GPU
-  passthrough note (needs Docker Desktop's WSL2 backend with Linux
-  containers, not Windows-containers mode).
-- `train_detector.py` hard-exited if `--base-model` (default
-  `models/yolo11n.pt`) didn't already exist locally -- hit for real on an
-  ML machine with a freshly-mounted, empty `models/` directory. This
-  directly contradicted `docs/TRAINING.md`'s own claim that the base
-  checkpoint "auto-downloads on first training run": Ultralytics does
-  auto-download a recognized checkpoint name to the exact given path, but
-  only if the script ever reaches `YOLO(...)` -- the pre-check was exiting
-  before that could happen. Changed to a warning instead of a hard exit,
-  restoring the documented self-heal behavior.
-- `docs/TRAINING.md`'s example training commands hardcoded `--device
-  0,1,2` -- hit for real on an ML machine with only 1 GPU configured
-  ("invalid CUDA device"). `train_detector.py`/`train_jersey_classifier.py`
-  now auto-detect every visible CUDA GPU (`torch.cuda.device_count()`) and
-  use all of them by default, so the command doesn't need editing as GPUs
-  are added or removed; `--device` remains available to explicitly
-  restrict to a subset. Verified the detection logic's branches (0/1/N
-  GPUs) with a mocked `torch.cuda` since no real multi-GPU hardware is
-  available in this environment.
-- Training `docker run` commands were missing `--ipc=host` -- hit for real
-  on an ML machine as `RuntimeError: unable to allocate shared memory
-  (shm)... No space left on device`, which reads like a disk problem but
-  is actually Docker's default 64MB `/dev/shm` being far too small for
-  PyTorch DataLoader workers passing real image batches between
-  processes. `--ipc=host` (PyTorch's own recommended fix) added to both
-  training commands in `docs/TRAINING.md`.
-- Same class of bug again, this time with batch size: the documented
-  `--batch 32` example OOM'd for real (`torch.AcceleratorError: CUDA
-  error: out of memory`) on a GPU with less VRAM than whatever card 32 was
-  sized for. `train_detector.py`/`train_jersey_classifier.py`'s `--batch`
-  default changed from a fixed number to `-1`, which triggers Ultralytics'
-  AutoBatch (a few trial passes pick the largest batch that actually fits
-  in available VRAM) instead of guessing a number that happens to work on
-  one card and not another.
-- AutoBatch alone wasn't enough on a small-VRAM GPU -- training ran
-  cleanly for ~15 real iterations (memory climbing) then OOM'd in the
-  DataLoader's pin-memory step, a fragmentation/worst-case-batch pattern
-  rather than "never fits." Added `--workers` to both training scripts
-  (fewer DataLoader workers = less pinned memory held for prefetching)
-  and documented `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`
-  (PyTorch's own fix for this exact symptom) in `docs/TRAINING.md`'s
-  training command and troubleshooting section.
-- AutoBatch (`--batch -1`) doesn't work at all for multi-GPU training --
-  confirmed via Ultralytics' own error on real 2-GPU hardware (`AutoBatch
-  with batch<1 not supported for Multi-GPU training, please specify a
-  valid batch size multiple of GPU count`). Both training scripts now
-  detect this case and fall back to a conservative explicit batch (8 per
-  GPU) automatically instead of crashing, printing a note when the
-  fallback is used. Verified the fallback logic's branches (1 GPU, 2/3
-  GPUs, explicit override) directly since no real multi-GPU hardware was
-  available in this environment at the time.
-
-### Added
 - `train_detector.py --resume <path/to/last.pt>`: resumes an interrupted
   training run (a real power outage killed a run mid-epoch-8 on the ML
   machine) from Ultralytics' own checkpoint, picking up at the next epoch
@@ -322,113 +208,6 @@ validating end-to-end against real footage:
   confidence gap 0.0087 (float32 rounding-order noise between torch and
   onnxruntime, not a remaining mismatch).
 
-### Known limitations, honestly documented
-- `agon.jersey.onnx_classifier.OnnxJerseyClassifier` has now been
-  empirically validated (see the fix entry above) -- no longer an open
-  caveat.
-
-### Verified
-- GPU passthrough (`docker run --gpus all`), confirmed end-to-end for the
-  first time against real hardware (2x RTX 3090, Ubuntu) after carrying an
-  "unverified, no GPU available" caveat through every prior phase of this
-  project. `torch.cuda.is_available()` returns `True` with both GPUs
-  correctly enumerated inside the `agon:train` container. Updated
-  `Dockerfile`'s header comment and `docs/TRAINING.md`'s opening note, and
-  removed the corresponding "Not yet done" bullet from `README.md`.
-- **First real-footage review of both `models/runs/train/soccernet-3`
-  (the full 50-epoch/960-imgsz detector trained on the ML machine's real
-  GPU hardware) and `jersey-gsr`, run together against
-  `benchmark_clip.mp4`** (real Premier League broadcast footage, outside
-  both models' training data). Detector: strong, validated result -- ball
-  detected in 100% of frames (180/180), every player correctly boxed and
-  tracked, referee correctly identified; confirmed both numerically and
-  by visually inspecting an annotated frame. Jersey classifier: a real,
-  separate accuracy problem found, distinct from the preprocessing bug
-  fixed earlier the same day -- pulled a player's actual crop directly
-  from the source video, visually confirmed the real shirt number was
-  12, then ran the exact same crop through the model, which predicted 36
-  with up to 98% confidence sustained across dozens of frames of that
-  track. The earlier fix confirmed the model's *output* is being read
-  correctly; this shows the *model itself* doesn't generalize well from
-  SoccerNet's own broadcast footage to a visually different broadcast
-  (different league, kit designs, camera/lighting) -- a domain-gap
-  problem, not a code bug. Flagged as a real, open limitation rather than
-  worked around.
-
-### Fixed
-- **Root cause of the jersey classifier's near-random accuracy, found by
-  checking the raw SoccerNet label files directly rather than assuming
-  the earlier "domain gap" diagnosis was the whole story.** Confirmed
-  across 167 real player tracks (8 sequences): `attributes.jersey` in
-  SN-GSR-2025 is assigned per *track*, not per frame -- every annotation
-  instance of a track carries the same value regardless of whether the
-  number is visible in that specific frame (zero tracks showed more than
-  one distinct value). Pulled real examples confirming this in practice:
-  a crop labeled "8" with the player facing forward and no number visible
-  at all, sitting next to a crop labeled "8" with the number clearly
-  printed on the back. A large fraction of the ~630K training crops teach
-  the classifier to associate irrelevant visual noise (pose, kit color,
-  background) with arbitrary digits -- this, not domain gap, is why
-  training-time validation accuracy (2.41% top1) was *worse* than a
-  trivial "always guess the most common class" baseline (16.4%).
-- **Replaced the from-scratch classifier with EasyOCR**
-  (`agon.jersey.ocr_reader.EasyOcrJerseyReader`), a pretrained
-  general-purpose scene-text-recognition model with no training on this
-  project's noisy labels at all. `PipelineConfig.jersey_backend` selects
-  `"off"` (default) / `"ocr"` (recommended) / `"onnx"` (the old
-  classifier, kept for existing checkpoints, documented as not
-  recommended). Validated against real crops with known ground truth:
-  correct reads at 93-100% confidence on clearly-visible numbers, and
-  correctly returned nothing at all on a crop where the player faced away
-  -- exactly the "only label if confident" behavior needed. Real,
-  observed failure modes: a 93%-confidence misread (true 36 read as 35,
-  a classic 6/5 digit confusion) and lower-confidence misreads on
-  two-digit numbers -- confidence alone doesn't guarantee correctness.
-- `agon.jersey.aggregator.aggregate_track_jersey_numbers` gained
-  `min_votes` (`PipelineConfig.jersey_min_votes`, default 2): the winning
-  candidate must be predicted by at least this many separate frames, not
-  just clear a confidence threshold on one. Directly motivated by the
-  93%-confidence single-frame misread above -- `min_confidence` alone
-  wouldn't have caught it, since 0.93 clears any reasonable threshold.
-  Requiring a second frame to agree is cheap for any track spanning more
-  than a couple of frames (the normal case) and directly protects against
-  this exact failure mode.
-- **Full pipeline, end-to-end, re-run against the exact real player the
-  old classifier got wrong.** Same track (`benchmark_clip.mp4`, track_id
-  3, the player independently confirmed by eye to be wearing a real #12
-  shirt) that the old `OnnxJerseyClassifier` confidently mislabeled #36:
-  re-processed the whole clip through the full pipeline (detection →
-  tracking → OCR jersey reading → track-level aggregation) with
-  `jersey_backend="ocr"`, and this exact track now correctly comes out as
-  **12**. Confirmed it's the same physical player, not a coincidence or a
-  different track_id, by re-pulling the crop from the new run's own
-  bounding box. 17/43 player tracks in this short (12s) clip cleared both
-  the confidence and `min_votes` thresholds -- the rest legitimately
-  never showed a clearly-readable number, which is the intended "don't
-  guess" behavior, not a shortfall. Run on GPU (`--gpus all`) for speed
-  -- EasyOCR runs one full forward pass per player per frame, ~66 seconds
-  for 180 frames vs. an estimated ~an hour on CPU for the same clip.
-
-### Investigated
-- **Pitch-position (`position_pitch_m`) coverage, measured directly
-  rather than assumed.** Ran the same real clip (`benchmark_clip.mp4`)
-  through both calibrators: static (`ViewTransformer`, one fixed
-  homography for the whole clip) covered only 34.4% of player detections
-  with a non-null pitch position; dynamic (`PitchKeypointCalibrator`,
-  per-frame center-circle detection) covered 56.9% -- meaningfully
-  better, but still leaves nearly half of all detections uncalibrated.
-  Checked whether the two calibrators fail on the *same* frames or
-  *different* ones: mostly different -- a simple hybrid (try dynamic,
-  fall back to static) would cover 73.5% of the same detections, more
-  than double the static-only baseline, using two calibrators that
-  already exist with zero new CV/ML work. Five improvements identified
-  and scoped in the project plan's Phase 12, priority order: hybrid
-  fallback, multi-feature full homography instead of a similarity
-  transform, camera-motion-compensated carry-forward between circle
-  detections, a real accuracy-measurement harness, and the already-planned
-  trained keypoint model.
-
-### Added
 - **`agon.geometry.hybrid_pitch_calibrator.HybridPitchCalibrator`**
   (Phase 12 item 1): tries a primary `PitchCalibrator` per point, falls
   back to a secondary when the primary returns None. Selectable via
@@ -547,41 +326,6 @@ validating end-to-end against real footage:
   Root cause not yet investigated -- a clear, now visually-demonstrated
   target for item 2 or a follow-on fix.
 
-### Fixed
-- **Root cause of the ~90-degree halfway-line rotation error above,
-  found and fixed.** Dumped every Hough-line candidate on the actual
-  failing frame instead of guessing: the real halfway line *was* being
-  detected (multiple candidates at ~91 degrees, 12-18px from the circle
-  center) but `_detect_halfway_line_angle`'s `minLineLength` (`radius *
-  1.3`) rejected all of them -- the longest real unbroken segment found
-  was only ~0.89x the radius (players standing on the line, motion blur,
-  and Hough's own segmentation fragment a long line into shorter
-  pieces). With every candidate rejected, the code silently fell back to
-  a **hardcoded `angle = 0.0`** whenever there was no previous frame to
-  reuse -- wrong, not just imprecise. Fixed: `minLineLength` loosened to
-  `radius * 0.7` (confirmed to recover ~91-92 degrees on all 5 tested
-  frames); the silent `0.0` fallback removed (a frame with nothing to go
-  on now correctly resolves nothing, matching this project's "don't
-  guess when unsure" rule elsewhere). Loosening (1) introduced a real
-  second-order bug caught before shipping -- a wide, flattened ellipse's
-  own boundary can itself register as a spurious Hough candidate under
-  the loosened threshold (confirmed via a synthetic test with no
-  halfway line drawn at all) -- fixed by also tightening the
-  proximity-to-center filter (`radius * 0.6` -> `radius * 0.15`),
-  justified by a wide empirical margin: real detections measured
-  6.7-39.3px against a ~530px radius across 5 real frames; the synthetic
-  ellipse-boundary artifact measured ~60px against a 182px radius.
-
-  **Re-validated after the fix**: on `benchmark_clip.mp4`, the rendered
-  overlay's halfway line now visibly overlaps the real one (previously
-  off by ~90 degrees); coverage unchanged (113/180 frames). On the
-  harder `match_10min_sample.mp4` sample, the touchline hit rate improved
-  modestly (5/37, 13.5%, vs. the earlier 5/55, 9.1%) -- most of that
-  dataset's remaining failures are the *other* already-documented causes
-  (wrong pitch arc matched as the circle, broadcast-graphic false
-  positives), which this fix doesn't address on its own.
-
-### Added
 - **Data pipeline for a trained pitch-calibration keypoint model**
   (Phase 13): a full audit of already-downloaded SoccerNet labeled data
   confirmed 115 SN-GSR-2025 sequences with per-frame annotations for up
@@ -678,3 +422,254 @@ validating end-to-end against real footage:
   annotated calibration file (still missing, per Phase 12 item 4), or
   the trained-keypoint-model calibrator's own real projective fit, once
   that training run completes.
+
+### Fixed
+- `OnnxDetector` always supported a configurable input resolution, but
+  nothing above it in the pipeline ever passed one through — inference
+  silently ran at 640x640 regardless of what resolution a checkpoint was
+  actually trained/exported at.
+- Pipeline defaulted `frame_rate` to a hardcoded 24fps instead of the
+  input video's actual fps, corrupting speed/distance/timestamp math and
+  the annotated video's playback speed on any non-24fps footage.
+- `IncrementalVideoWriter` didn't remove a stale file at the output path
+  first; macOS's AVFoundation backend refuses to open a `VideoWriter` at a
+  path that already exists instead of overwriting it.
+- `ViewTransformer`/`PitchKeypointCalibrator` crashed (`ValueError`) on a
+  NaN ball position (the ball never detected anywhere in a chunk).
+- `Dockerfile`'s `ENTRYPOINT` silently prepended itself to any command
+  passed to `docker run`, breaking every training-script invocation.
+- SoccerNet data-conversion scripts baked in absolute host paths (dataset
+  config and image symlinks), breaking the moment the same output
+  directory was mounted into a container at a different path.
+- `classify_frame` called OCR (~150ms) unconditionally on every frame
+  regardless of whether a frame had pitch visible at all — an unforced
+  multi-hour runtime for a 10-minute clip with clock-reading enabled.
+- SoccerNet's legacy Tracking/Calibration/Re-ID/Jersey-2023 datasets were
+  wrongly documented as broken — they were tested with the wrong password
+  (a personal NDA video-download password, not the generic public one
+  these specific datasets actually use); re-tested and confirmed working.
+- `docs/TRAINING.md`'s Docker volume mounts didn't match where the scripts
+  actually write: Step 3 mounted `/data` but `prepare_training_data.py`
+  writes under `/app/data` (relative to its own location in the image), so
+  downloaded/converted data never left the container and was lost on
+  `--rm`; Step 4 didn't override `train_detector.py`/
+  `train_jersey_classifier.py`'s default `--project runs/train` (also not
+  under any mounted volume), so a real training run would complete with
+  correct metrics and then lose every weight file the same way. Both fixed
+  by mounting `/app/data` and adding an explicit `--project
+  /app/models/runs/train`. Also added the previously-undocumented
+  prerequisite that `--gpus all` needs the NVIDIA Container Toolkit
+  installed and Docker configured for it beforehand — without it the
+  command fails outright, not just falls back to CPU.
+- `README.md`'s Docker development example was missing the `agon` command
+  name — since the image has no `ENTRYPOINT`, `docker run <image> --input
+  ...` tried to exec `--input` itself as the container's process and failed
+  immediately.
+- `huggingface_hub` and the `SoccerNet` pip package (used by
+  `download_soccernet_gsr.py`/`download_soccernet_legacy.py`) were never
+  declared as dependencies anywhere — interactive testing on dev machines
+  worked because they'd been manually `pip install`ed into a throwaway
+  venv, but a fresh `uv sync --extra train` (i.e. building the Docker
+  image from scratch) never installed them, so `prepare_training_data.py`
+  failed for every data source inside a real container. Found and fixed by
+  actually building the image fresh and running it, not just reasoning
+  through the dependency graph — added both to the `[train]` extra and
+  re-validated with a real download+convert run (2,719 images, matching
+  the earlier manually-tested count) confirming data now actually lands on
+  the host via the volume mount.
+- `docs/TRAINING.md`'s commands assumed a bash/zsh shell (`$(pwd)`, `\`
+  line continuation) with no mention of Windows — hit for real on an
+  actual ML machine running Command Prompt, where `$(pwd)` isn't expanded
+  at all and Docker fails with `includes invalid characters for a local
+  volume name`. Added a shell-substitution table (`%cd%`/`^` for
+  `cmd.exe`, `${PWD}`/backtick for PowerShell) and a Windows-specific GPU
+  passthrough note (needs Docker Desktop's WSL2 backend with Linux
+  containers, not Windows-containers mode).
+- `train_detector.py` hard-exited if `--base-model` (default
+  `models/yolo11n.pt`) didn't already exist locally -- hit for real on an
+  ML machine with a freshly-mounted, empty `models/` directory. This
+  directly contradicted `docs/TRAINING.md`'s own claim that the base
+  checkpoint "auto-downloads on first training run": Ultralytics does
+  auto-download a recognized checkpoint name to the exact given path, but
+  only if the script ever reaches `YOLO(...)` -- the pre-check was exiting
+  before that could happen. Changed to a warning instead of a hard exit,
+  restoring the documented self-heal behavior.
+- `docs/TRAINING.md`'s example training commands hardcoded `--device
+  0,1,2` -- hit for real on an ML machine with only 1 GPU configured
+  ("invalid CUDA device"). `train_detector.py`/`train_jersey_classifier.py`
+  now auto-detect every visible CUDA GPU (`torch.cuda.device_count()`) and
+  use all of them by default, so the command doesn't need editing as GPUs
+  are added or removed; `--device` remains available to explicitly
+  restrict to a subset. Verified the detection logic's branches (0/1/N
+  GPUs) with a mocked `torch.cuda` since no real multi-GPU hardware is
+  available in this environment.
+- Training `docker run` commands were missing `--ipc=host` -- hit for real
+  on an ML machine as `RuntimeError: unable to allocate shared memory
+  (shm)... No space left on device`, which reads like a disk problem but
+  is actually Docker's default 64MB `/dev/shm` being far too small for
+  PyTorch DataLoader workers passing real image batches between
+  processes. `--ipc=host` (PyTorch's own recommended fix) added to both
+  training commands in `docs/TRAINING.md`.
+- Same class of bug again, this time with batch size: the documented
+  `--batch 32` example OOM'd for real (`torch.AcceleratorError: CUDA
+  error: out of memory`) on a GPU with less VRAM than whatever card 32 was
+  sized for. `train_detector.py`/`train_jersey_classifier.py`'s `--batch`
+  default changed from a fixed number to `-1`, which triggers Ultralytics'
+  AutoBatch (a few trial passes pick the largest batch that actually fits
+  in available VRAM) instead of guessing a number that happens to work on
+  one card and not another.
+- AutoBatch alone wasn't enough on a small-VRAM GPU -- training ran
+  cleanly for ~15 real iterations (memory climbing) then OOM'd in the
+  DataLoader's pin-memory step, a fragmentation/worst-case-batch pattern
+  rather than "never fits." Added `--workers` to both training scripts
+  (fewer DataLoader workers = less pinned memory held for prefetching)
+  and documented `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`
+  (PyTorch's own fix for this exact symptom) in `docs/TRAINING.md`'s
+  training command and troubleshooting section.
+- AutoBatch (`--batch -1`) doesn't work at all for multi-GPU training --
+  confirmed via Ultralytics' own error on real 2-GPU hardware (`AutoBatch
+  with batch<1 not supported for Multi-GPU training, please specify a
+  valid batch size multiple of GPU count`). Both training scripts now
+  detect this case and fall back to a conservative explicit batch (8 per
+  GPU) automatically instead of crashing, printing a note when the
+  fallback is used. Verified the fallback logic's branches (1 GPU, 2/3
+  GPUs, explicit override) directly since no real multi-GPU hardware was
+  available in this environment at the time.
+
+- **Root cause of the jersey classifier's near-random accuracy, found by
+  checking the raw SoccerNet label files directly rather than assuming
+  the earlier "domain gap" diagnosis was the whole story.** Confirmed
+  across 167 real player tracks (8 sequences): `attributes.jersey` in
+  SN-GSR-2025 is assigned per *track*, not per frame -- every annotation
+  instance of a track carries the same value regardless of whether the
+  number is visible in that specific frame (zero tracks showed more than
+  one distinct value). Pulled real examples confirming this in practice:
+  a crop labeled "8" with the player facing forward and no number visible
+  at all, sitting next to a crop labeled "8" with the number clearly
+  printed on the back. A large fraction of the ~630K training crops teach
+  the classifier to associate irrelevant visual noise (pose, kit color,
+  background) with arbitrary digits -- this, not domain gap, is why
+  training-time validation accuracy (2.41% top1) was *worse* than a
+  trivial "always guess the most common class" baseline (16.4%).
+- **Replaced the from-scratch classifier with EasyOCR**
+  (`agon.jersey.ocr_reader.EasyOcrJerseyReader`), a pretrained
+  general-purpose scene-text-recognition model with no training on this
+  project's noisy labels at all. `PipelineConfig.jersey_backend` selects
+  `"off"` (default) / `"ocr"` (recommended) / `"onnx"` (the old
+  classifier, kept for existing checkpoints, documented as not
+  recommended). Validated against real crops with known ground truth:
+  correct reads at 93-100% confidence on clearly-visible numbers, and
+  correctly returned nothing at all on a crop where the player faced away
+  -- exactly the "only label if confident" behavior needed. Real,
+  observed failure modes: a 93%-confidence misread (true 36 read as 35,
+  a classic 6/5 digit confusion) and lower-confidence misreads on
+  two-digit numbers -- confidence alone doesn't guarantee correctness.
+- `agon.jersey.aggregator.aggregate_track_jersey_numbers` gained
+  `min_votes` (`PipelineConfig.jersey_min_votes`, default 2): the winning
+  candidate must be predicted by at least this many separate frames, not
+  just clear a confidence threshold on one. Directly motivated by the
+  93%-confidence single-frame misread above -- `min_confidence` alone
+  wouldn't have caught it, since 0.93 clears any reasonable threshold.
+  Requiring a second frame to agree is cheap for any track spanning more
+  than a couple of frames (the normal case) and directly protects against
+  this exact failure mode.
+- **Full pipeline, end-to-end, re-run against the exact real player the
+  old classifier got wrong.** Same track (`benchmark_clip.mp4`, track_id
+  3, the player independently confirmed by eye to be wearing a real #12
+  shirt) that the old `OnnxJerseyClassifier` confidently mislabeled #36:
+  re-processed the whole clip through the full pipeline (detection →
+  tracking → OCR jersey reading → track-level aggregation) with
+  `jersey_backend="ocr"`, and this exact track now correctly comes out as
+  **12**. Confirmed it's the same physical player, not a coincidence or a
+  different track_id, by re-pulling the crop from the new run's own
+  bounding box. 17/43 player tracks in this short (12s) clip cleared both
+  the confidence and `min_votes` thresholds -- the rest legitimately
+  never showed a clearly-readable number, which is the intended "don't
+  guess" behavior, not a shortfall. Run on GPU (`--gpus all`) for speed
+  -- EasyOCR runs one full forward pass per player per frame, ~66 seconds
+  for 180 frames vs. an estimated ~an hour on CPU for the same clip.
+
+- **Root cause of the ~90-degree halfway-line rotation error above,
+  found and fixed.** Dumped every Hough-line candidate on the actual
+  failing frame instead of guessing: the real halfway line *was* being
+  detected (multiple candidates at ~91 degrees, 12-18px from the circle
+  center) but `_detect_halfway_line_angle`'s `minLineLength` (`radius *
+  1.3`) rejected all of them -- the longest real unbroken segment found
+  was only ~0.89x the radius (players standing on the line, motion blur,
+  and Hough's own segmentation fragment a long line into shorter
+  pieces). With every candidate rejected, the code silently fell back to
+  a **hardcoded `angle = 0.0`** whenever there was no previous frame to
+  reuse -- wrong, not just imprecise. Fixed: `minLineLength` loosened to
+  `radius * 0.7` (confirmed to recover ~91-92 degrees on all 5 tested
+  frames); the silent `0.0` fallback removed (a frame with nothing to go
+  on now correctly resolves nothing, matching this project's "don't
+  guess when unsure" rule elsewhere). Loosening (1) introduced a real
+  second-order bug caught before shipping -- a wide, flattened ellipse's
+  own boundary can itself register as a spurious Hough candidate under
+  the loosened threshold (confirmed via a synthetic test with no
+  halfway line drawn at all) -- fixed by also tightening the
+  proximity-to-center filter (`radius * 0.6` -> `radius * 0.15`),
+  justified by a wide empirical margin: real detections measured
+  6.7-39.3px against a ~530px radius across 5 real frames; the synthetic
+  ellipse-boundary artifact measured ~60px against a 182px radius.
+
+  **Re-validated after the fix**: on `benchmark_clip.mp4`, the rendered
+  overlay's halfway line now visibly overlaps the real one (previously
+  off by ~90 degrees); coverage unchanged (113/180 frames). On the
+  harder `match_10min_sample.mp4` sample, the touchline hit rate improved
+  modestly (5/37, 13.5%, vs. the earlier 5/55, 9.1%) -- most of that
+  dataset's remaining failures are the *other* already-documented causes
+  (wrong pitch arc matched as the circle, broadcast-graphic false
+  positives), which this fix doesn't address on its own.
+
+### Known limitations, honestly documented
+- `agon.jersey.onnx_classifier.OnnxJerseyClassifier` has now been
+  empirically validated (see the fix entry above) -- no longer an open
+  caveat.
+
+### Verified
+- GPU passthrough (`docker run --gpus all`), confirmed end-to-end for the
+  first time against real hardware (2x RTX 3090, Ubuntu) after carrying an
+  "unverified, no GPU available" caveat through every prior phase of this
+  project. `torch.cuda.is_available()` returns `True` with both GPUs
+  correctly enumerated inside the `agon:train` container. Updated
+  `Dockerfile`'s header comment and `docs/TRAINING.md`'s opening note, and
+  removed the corresponding "Not yet done" bullet from `README.md`.
+- **First real-footage review of both `models/runs/train/soccernet-3`
+  (the full 50-epoch/960-imgsz detector trained on the ML machine's real
+  GPU hardware) and `jersey-gsr`, run together against
+  `benchmark_clip.mp4`** (real Premier League broadcast footage, outside
+  both models' training data). Detector: strong, validated result -- ball
+  detected in 100% of frames (180/180), every player correctly boxed and
+  tracked, referee correctly identified; confirmed both numerically and
+  by visually inspecting an annotated frame. Jersey classifier: a real,
+  separate accuracy problem found, distinct from the preprocessing bug
+  fixed earlier the same day -- pulled a player's actual crop directly
+  from the source video, visually confirmed the real shirt number was
+  12, then ran the exact same crop through the model, which predicted 36
+  with up to 98% confidence sustained across dozens of frames of that
+  track. The earlier fix confirmed the model's *output* is being read
+  correctly; this shows the *model itself* doesn't generalize well from
+  SoccerNet's own broadcast footage to a visually different broadcast
+  (different league, kit designs, camera/lighting) -- a domain-gap
+  problem, not a code bug. Flagged as a real, open limitation rather than
+  worked around.
+
+### Investigated
+- **Pitch-position (`position_pitch_m`) coverage, measured directly
+  rather than assumed.** Ran the same real clip (`benchmark_clip.mp4`)
+  through both calibrators: static (`ViewTransformer`, one fixed
+  homography for the whole clip) covered only 34.4% of player detections
+  with a non-null pitch position; dynamic (`PitchKeypointCalibrator`,
+  per-frame center-circle detection) covered 56.9% -- meaningfully
+  better, but still leaves nearly half of all detections uncalibrated.
+  Checked whether the two calibrators fail on the *same* frames or
+  *different* ones: mostly different -- a simple hybrid (try dynamic,
+  fall back to static) would cover 73.5% of the same detections, more
+  than double the static-only baseline, using two calibrators that
+  already exist with zero new CV/ML work. Five improvements identified
+  and scoped in the project plan's Phase 12, priority order: hybrid
+  fallback, multi-feature full homography instead of a similarity
+  transform, camera-motion-compensated carry-forward between circle
+  detections, a real accuracy-measurement harness, and the already-planned
+  trained keypoint model.

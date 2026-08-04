@@ -170,6 +170,44 @@ docker run --rm --gpus all --ipc=host \
     --epochs 30
 ```
 
+**Pitch-calibration keypoint model:** first convert the same SoccerNet
+line-annotation sources Step 3 already pulled into Ultralytics pose-format
+labels (one call per source; both write into the same output directory,
+so both a GSR extraction and the legacy Calibration dataset can feed one
+combined training set):
+```bash
+docker run --rm -v "$(pwd)/data:/app/data" -w /app agon:train \
+  python scripts/convert_soccernet_calibration_to_pose.py \
+    gsr /app/data/soccernet/gamestate-2025/train_extracted \
+    /app/data/soccernet_pose train
+docker run --rm -v "$(pwd)/data:/app/data" -w /app agon:train \
+  python scripts/convert_soccernet_calibration_to_pose.py \
+    legacy /app/data/soccernet/calibration/train \
+    /app/data/soccernet_pose train
+# repeat both for the valid/val split
+```
+Then train (same auto-device/auto-workers/AutoBatch behavior as the two
+scripts above; Ultralytics pose-estimation mode, not a custom loop):
+```bash
+docker run --rm --gpus all --ipc=host \
+  -e PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
+  -v "$(pwd)/data:/app/data" -v "$(pwd)/models:/app/models" \
+  -w /app agon:train \
+  python scripts/train_pitch_calibration.py \
+    --data /app/data/soccernet_pose/dataset.yaml \
+    --project /app/models/runs/train \
+    --imgsz 960 --epochs 30
+```
+Real result from the run that validated this path (2026-08-03, 82,945
+combined frames, RTX 3090, ~7.3 hours): pose mAP50 **0.842**, mAP50-95
+**0.379** on the held-out validation set, still improving at epoch 30 (no
+plateau) — a longer run would likely help further. `best.pt`/`best.onnx`
+land under `models/runs/train/pitch_calibration/weights/`, same layout as
+the other two training runs. **The inference side
+(`TrainedPitchCalibrator`) doesn't exist yet** — decoding this checkpoint's
+keypoint output into a homography and wiring it into
+`PipelineConfig.calibration_mode` is still open; see the project plan.
+
 **`--ipc=host` is required, not optional.** PyTorch's DataLoader passes
 batches between worker processes through `/dev/shm` (shared memory) —
 Docker defaults that to a tiny 64MB, nowhere near enough for real image
@@ -291,9 +329,11 @@ agon --input <video> --model models/best.onnx \
 
 ## Known gaps (honest, not hidden)
 
-- **Pitch calibration model**: not built yet (only the data-prep scripts
-  exist, now fed by two sources — see Step 3). Detection + jersey number
-  training are the complete, validated, trainable paths today. In the
+- **Pitch calibration model is trained (real result: pose mAP50 0.842),
+  but nothing in the pipeline uses it yet.** See Step 4's pitch-calibration
+  subsection for the real run. `TrainedPitchCalibrator` (decode the
+  checkpoint's keypoints → homography → satisfy `PitchCalibrator`) isn't
+  built — that's the remaining gap, not the training itself. In the
   meantime, `PipelineConfig.calibration_mode = "hybrid"` (a new
   `HybridPitchCalibrator` combining the existing static/dynamic
   calibrators) measurably improves pitch-position coverage (77.0% vs.
