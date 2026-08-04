@@ -9,6 +9,7 @@ from agon.geometry.trained_pitch_calibrator import (
     TrainedPitchCalibrator,
     decode_best_pitch_keypoints,
     fit_homography_from_keypoints,
+    leave_one_out_position_errors,
 )
 
 
@@ -114,6 +115,67 @@ class TestFitHomographyFromKeypoints:
         )
 
         assert result is None
+
+
+class TestLeaveOneOutPositionErrors:
+    def _confident_keypoints_from_real_correspondences(
+        self, homography: np.ndarray, num_points: int
+    ) -> np.ndarray:
+        keypoints = np.zeros((NUM_KEYPOINTS, 3), dtype=np.float64)
+        for i in range(num_points):
+            name, endpoint_idx = CANONICAL_KEYPOINTS[i]
+            x, y = canonical_keypoint_real_xy(name, endpoint_idx)
+            homogeneous = homography @ np.array([x, y, 1.0])
+            px, py = homogeneous[0] / homogeneous[2], homogeneous[1] / homogeneous[2]
+            keypoints[i] = [px, py, 0.9]
+        return keypoints
+
+    def test_empty_below_min_keypoints_plus_one(self):
+        homography = np.array([[50.0, 0.0, 960.0], [0.0, 50.0, 540.0], [0.0, 0.0, 1.0]])
+        # min_keypoints=4 needs 5 confident points (4 to fit + 1 held out);
+        # only 4 available.
+        keypoints = self._confident_keypoints_from_real_correspondences(homography, num_points=4)
+
+        errors = leave_one_out_position_errors(
+            keypoints, keypoint_confidence=0.3, min_keypoints=4, ransac_reproj_threshold=10.0
+        )
+
+        assert errors == []
+
+    def test_near_zero_error_for_a_noise_free_homography(self):
+        # A real projective homography, no detection noise at all: holding
+        # out any one of many consistent points and re-fitting from the
+        # rest should recover its true position almost exactly -- this is
+        # the "does the math itself work" check, before trusting it
+        # against real, noisy footage.
+        homography = np.array([[50.0, 5.0, 960.0], [-3.0, 45.0, 540.0], [0.0001, 0.0, 1.0]])
+        keypoints = self._confident_keypoints_from_real_correspondences(homography, num_points=15)
+
+        errors = leave_one_out_position_errors(
+            keypoints, keypoint_confidence=0.3, min_keypoints=4, ransac_reproj_threshold=10.0
+        )
+
+        assert len(errors) == 15
+        assert max(errors) < 1e-4
+
+    def test_pixel_noise_produces_proportionally_larger_errors(self):
+        # A real, measurable relationship: perturbing every detected pixel
+        # by a known amount should push leave-one-out error up from the
+        # near-zero noise-free case, not leave it unchanged -- confirms
+        # the function is actually sensitive to real detection error,
+        # not silently absorbing it.
+        homography = np.array([[50.0, 5.0, 960.0], [-3.0, 45.0, 540.0], [0.0001, 0.0, 1.0]])
+        keypoints = self._confident_keypoints_from_real_correspondences(homography, num_points=15)
+        rng = np.random.default_rng(seed=3)
+        keypoints[:15, 0] += rng.normal(0, 3.0, size=15)  # +/- a few px of pixel noise
+        keypoints[:15, 1] += rng.normal(0, 3.0, size=15)
+
+        errors = leave_one_out_position_errors(
+            keypoints, keypoint_confidence=0.3, min_keypoints=4, ransac_reproj_threshold=10.0
+        )
+
+        assert len(errors) == 15
+        assert max(errors) > 0.01  # meaningfully nonzero, unlike the noise-free case
 
 
 def _make_calibrator_with_mocked_session(

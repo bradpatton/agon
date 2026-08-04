@@ -33,6 +33,25 @@ corner, the top touchline) each precisely on their real markings. A
 close-up shot with no pitch visible at all correctly scored 0.04 class
 confidence -- exactly the "no pitch here" signal this calibrator's
 ``min_keypoints`` gate depends on.
+
+**Important, sobering correction: coverage (does a frame resolve a
+homography at all) and accuracy (is the resolved position correct) are
+different questions, and this class's real numbers on the two diverge
+sharply.** Coverage is genuinely good -- 92.5% of a typical wide match
+sample resolved a homography (see
+``scripts/validate_trained_pitch_calibrator.py``). But the first real
+ground-truth accuracy check this project has ever run
+(``leave_one_out_position_errors`` below, using each frame's own other
+detected keypoints as independently-verifiable ground truth) found a
+**median position error of 16.7m** on real footage -- not accurate,
+despite the high coverage and despite individual keypoints' own
+reprojection residual against the *same points used to fit them*
+looking small. See that function's docstring for the full real numbers
+and what's been ruled out (it isn't simply "too few or too clustered
+keypoints" -- the error was just as large in the best-observed
+keypoint-count/spread case). Do not treat this calibrator's
+``transform_point`` output as trustworthy for absolute position without
+being aware of this.
 """
 
 from __future__ import annotations
@@ -159,6 +178,100 @@ def fit_homography_from_keypoints(
         ransacReprojThreshold=ransac_reproj_threshold,
     )
     return homography  # type: ignore[return-value]  # cv2 stubs: dtype imprecise
+
+
+def leave_one_out_position_errors(
+    keypoints: npt.NDArray[np.float64],
+    keypoint_confidence: float,
+    min_keypoints: int,
+    ransac_reproj_threshold: float,
+) -> list[float]:
+    """The real ground-truth accuracy check this project has never had
+    (see project plan Phase 12 item 4 and
+    ``scripts/measure_pitch_calibration_agreement.py``'s own docstring,
+    which explicitly says it is *not* one): for one frame's decoded
+    keypoints, measures pixel->pitch position error in real meters, using
+    each confident keypoint in turn as a stand-in for "a real point whose
+    true position the calibrator doesn't get to see."
+
+    For each confident keypoint, fits a homography from every *other*
+    confident keypoint (exactly like a real player position estimate,
+    which is never among the points used to fit a frame's calibration),
+    then inverts that homography through the held-out keypoint's own
+    *detected* pixel position and compares the result to its independently
+    known true real-world position (``agon.geometry.pitch_keypoints``,
+    built from FIFA's official pitch dimensions -- genuine ground truth,
+    not another calibrator's opinion, unlike every prior "accuracy" check
+    in this project).
+
+    Returns one error (meters) per confident keypoint that had enough
+    *other* confident keypoints to fit from, and whose fitted homography
+    was invertible -- an empty list if the frame has too few confident
+    keypoints overall (fewer than ``min_keypoints + 1``, since one is
+    always held out).
+
+    **Real result (``scripts/measure_position_accuracy.py``, real
+    footage, not synthetic): median error 16.7m, mean 13.7m, p90 29.7m**
+    across 5,950 held-out measurements over 425 real frames -- not
+    accurate. Checked, not assumed, that this isn't just a "too few /
+    too clustered keypoints" problem: restricting to frames with the
+    maximum observed keypoint count (14) spread across nearly the full
+    frame width (>1790px of 1920) gave essentially the *same* ~16.6m
+    median error, not a better one. The likely cause: each keypoint's
+    own pixel *localization* may be off by more than it looks -- the
+    training run's own validation metric (pose mAP50 0.842) measures
+    whether a keypoint was detected at all (a looser criterion), not
+    how precisely it was placed, and a homography fit from individually
+    imprecise points can look self-consistent (low residual against
+    those same points) while still extrapolating poorly to any other
+    real position on the pitch. Not conclusively isolated -- this
+    project has no independently-annotated ground truth for *this*
+    specific broadcast footage to separate keypoint-localization error
+    from any other remaining cause.
+    """
+    confident = [
+        (name, endpoint_idx, float(keypoints[i][0]), float(keypoints[i][1]))
+        for i, (name, endpoint_idx) in enumerate(CANONICAL_KEYPOINTS)
+        if keypoints[i][2] >= keypoint_confidence
+    ]
+    if len(confident) < min_keypoints + 1:
+        return []
+
+    errors = []
+    for held_idx in range(len(confident)):
+        fit_points = confident[:held_idx] + confident[held_idx + 1 :]
+        world_points = np.array(
+            [
+                canonical_keypoint_real_xy(name, endpoint_idx)
+                for name, endpoint_idx, _, _ in fit_points
+            ],
+            dtype=np.float64,
+        )
+        pixel_points = np.array([(px, py) for _, _, px, py in fit_points], dtype=np.float64)
+
+        homography, _inliers = cv2.findHomography(
+            world_points,
+            pixel_points,
+            method=cv2.RANSAC,
+            ransacReprojThreshold=ransac_reproj_threshold,
+        )
+        if homography is None:
+            continue
+
+        try:
+            inverse = np.linalg.inv(homography)
+        except np.linalg.LinAlgError:
+            continue
+
+        held_name, held_endpoint_idx, held_px, held_py = confident[held_idx]
+        homogeneous = inverse @ np.array([held_px, held_py, 1.0])
+        if homogeneous[2] == 0:
+            continue
+        predicted = (homogeneous[0] / homogeneous[2], homogeneous[1] / homogeneous[2])
+        true_position = canonical_keypoint_real_xy(held_name, held_endpoint_idx)
+        errors.append(math.hypot(predicted[0] - true_position[0], predicted[1] - true_position[1]))
+
+    return errors
 
 
 class TrainedPitchCalibrator:

@@ -494,6 +494,34 @@ validating end-to-end against real footage:
   Phase 12's item 4). Shipped as a validated building block, explicitly
   not wired into the pipeline or export -- not production-ready.
 
+- **The real ground-truth player-position accuracy check this project
+  has never had -- and a sobering real result.** Every prior "accuracy"
+  measurement (coverage percentages, cross-calibrator agreement,
+  self-consistency touchline hit-rates) measured something else; none
+  checked a resolved position against independently-known ground truth.
+  `agon.geometry.trained_pitch_calibrator.leave_one_out_position_errors`
+  does: for each confidently-detected real keypoint in a frame, fits a
+  homography from every *other* confident keypoint (exactly as a real
+  player position estimate would be -- the player's true position is
+  never part of the fit), then checks how far the held-out keypoint's
+  predicted position is from its independently known true position (FIFA pitch
+  dimensions). Validated synthetically first (near-zero error for a
+  noise-free homography, growing error under injected pixel noise).
+  **Real result** (`scripts/measure_position_accuracy.py`, 425 real
+  frames, 5,950 held-out measurements): **median error 16.7m, mean
+  13.7m, p90 29.7m** -- not accurate, despite 92.5% coverage and low
+  reprojection error against the *same* points used to fit each
+  homography. Checked, not assumed, that this isn't just "too few or
+  too clustered keypoints": frames with the maximum observed keypoint
+  count (14) spread across nearly the full frame width gave essentially
+  the same ~16.6m error. Likely cause: the training run's own metric
+  (pose mAP50) measures whether a keypoint was detected, not how
+  precisely it was localized -- a homography fit from individually
+  imprecise points can look self-consistent while still extrapolating
+  poorly. Not conclusively isolated; this project has no independently
+  annotated ground truth for this specific broadcast footage to fully
+  separate keypoint-localization error from any other cause.
+
 ### Fixed
 - **`camera_pose_from_homography` had a real sign ambiguity**, found
   while validating ball-height estimation against real footage. A

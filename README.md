@@ -181,6 +181,25 @@ than the plain 2-way dynamic/static chain — trained tried first given its
 much higher typical-footage coverage, with the other two as real fallbacks
 for the framing it doesn't win on.
 
+**Critical correction: coverage is not accuracy, and a real ground-truth
+check found the accuracy isn't there yet.** Every number above measures
+whether `trained` *produces* a position, not whether that position is
+*correct*. `agon.geometry.trained_pitch_calibrator.leave_one_out_position_errors`
+is this project's first real ground-truth accuracy check: for each
+detected keypoint in a frame, fit a homography from every *other*
+detected keypoint (exactly as a real player position estimate would be),
+then measure how far the held-out keypoint's predicted position lands
+from its independently known true position (FIFA pitch dimensions).
+**Real result** (`scripts/measure_position_accuracy.py`, 425 real
+frames, 5,950 measurements): **median error 16.7m, mean 13.7m, p90
+29.7m** — not accurate, and not explained by too few or too clustered
+keypoints (the best-observed case — 14 keypoints spread across nearly
+the full frame — gave essentially the same ~16.6m error). Likely cause:
+the training metric (pose mAP50) measures whether a keypoint was
+detected, not how precisely it was localized. **Do not treat
+`calibration_mode: "trained"` (or `"hybrid"` wrapping it) as accurate
+for absolute position today** — high coverage, not verified correctness.
+
 `agon.geometry.camera_pose` (`camera_pose_from_homography`): given a real
 projective homography, recovers full camera pose — pan/tilt/roll/3D
 position/focal length, not just a flat pixel↔pitch mapping. A cited port of
@@ -243,6 +262,18 @@ imgsz=640, dynamic=False)`.
   `class` field and per-object structure are designed to extend to this
   later without a breaking change, but nothing is implemented yet. SoccerNet
   Action Spotting is the reference benchmark to build toward.
+- **Ball speed/distance — not computed at all.** `SpeedDistanceEstimator`
+  explicitly excludes the ball (`_EXCLUDED_OBJECT_TYPES = {"ball",
+  "referees"}`), asserted as intended behavior in its own test. The ball
+  is tracked (a bbox per frame exists), it's just never run through the
+  same kinematics players get. Straightforward to add, but its output
+  would inherit the same position-accuracy caveat above until that's
+  addressed.
+- **Player position accuracy — see the critical correction in "Pitch
+  calibration" above.** Real ground-truth validation found a median
+  16.7m position error for `calibration_mode: "trained"` on real
+  footage, despite 92.5% coverage. Not currently accurate enough to
+  trust for absolute position.
 - **Ball height (Z) — attempted, math validated, real-footage accuracy not
   trustworthy yet.** `agon.geometry.camera_pose.pixel_to_ray` +
   `agon.analytics.ball_height.estimate_ball_position_3d` (classical
@@ -354,7 +385,7 @@ one for new footage).
 
 ```bash
 uv sync --extra dev
-pytest                              # 190 tests, pure logic + synthetic inputs, no video/model needed
+pytest                              # 193 tests, pure logic + synthetic inputs, no video/model needed
 ruff check src/ tests/ && ruff format --check src/ tests/
 mypy src/agon
 pre-commit install                  # run the above automatically on commit
