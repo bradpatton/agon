@@ -282,9 +282,16 @@ imgsz=640, dynamic=False)`.
   annotate_ground_truth.py` (interactive click tool, run locally) +
   `scripts/measure_ground_truth_accuracy.py` (direct pixel-error
   comparison, no homography/FIFA-dimension assumption) give this project
-  its first footage-specific, human-verified ground truth — built and
-  validated end-to-end, but not yet run against real annotations (needs
-  a human to actually click through some frames).
+  its first footage-specific, human-verified ground truth. **First real
+  result**: 2 annotated frames of `benchmark_clip.mp4` (a tight
+  center-circle shot, this model's known worst-case framing) — 70 of 76
+  annotated keypoints (92%) got no confident model prediction at all,
+  and the 6 it did predict were off by a median of 720px (max 1444px)
+  on a 1916×1080 frame. The most direct accuracy signal this project has
+  produced yet, and worse than every indirect proxy measured so far —
+  though from only 2 frames in the model's worst-case framing, so not
+  yet a general conclusion. Next: annotate a wide-shot clip (92.5%
+  measured coverage) to see if this holds outside that worst case.
 - **Ball height (Z) — attempted, math validated, real-footage accuracy not
   trustworthy yet.** `agon.geometry.camera_pose.pixel_to_ray` +
   `agon.analytics.ball_height.estimate_ball_position_3d` (classical

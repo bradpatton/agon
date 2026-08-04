@@ -858,3 +858,32 @@ validating end-to-end against real footage:
   `annotate_ground_truth.py` itself needs a human clicking on a real
   display and hasn't been run for real data yet -- that's the concrete
   next step.
+
+### Investigated
+- **First real, human-verified ground-truth accuracy result -- and it's
+  worse than every indirect proxy measured so far.** User ran
+  `scripts/annotate_ground_truth.py` locally (via a minimal throwaway
+  venv, `opencv-python`/`numpy`/`pydantic` only -- this dev machine can't
+  install the full project env, `onnxruntime` has no macosx_x86_64 wheel
+  at the pinned version) and annotated 2 real frames of
+  `benchmark_clip.mp4`. Ran `scripts/measure_ground_truth_accuracy.py`
+  against the result in the ML machine's `agon:train` Docker image.
+  **Real result**: of 76 human-annotated keypoints, 70 (92%) got no
+  confident model prediction at all (< 0.3 confidence) -- direct
+  confirmation of this clip's already-known low coverage (~13%,
+  previously only measured indirectly). Of the 6 the model did predict,
+  pixel error was severe: median 720px, mean 759px, max 1444px on a
+  1916x1080 frame -- more than half the frame width off in the worst
+  case. This is the most direct accuracy signal this project has
+  produced (no homography fit or FIFA-dimension math mediating it).
+  **Honest caveat**: only 2 frames, from the model's known worst-case
+  framing (a tight center-circle shot), and all 38 keypoints were
+  clicked with no skips even though this framing structurally can't show
+  them all -- meaning some annotated points were likely rough guesses
+  rather than confident marks on real visible lines, which could inflate
+  the pixel-error numbers specifically (the 92%-no-detection finding is
+  unaffected by that caveat, since it only depends on whether the model
+  produced anything at all). Natural next step -- annotating a
+  wide-shot clip where the model's measured coverage is 92.5%, to
+  isolate whether this result is tight-shot-specific -- was proposed and
+  the user chose to pause there for now.
