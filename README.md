@@ -188,7 +188,17 @@ SoccerNet's own `sn-calibration` baseline (itself implementing a
 single-view self-calibration algorithm from Hartley & Zisserman's
 *Multiple View Geometry*). Validated synthetically to sub-millipixel
 reprojection accuracy, and against real footage via `TrainedPitchCalibrator`
-above (925/925 resolved frames decomposed successfully on one real sample).
+above (225/225 resolved frames decomposed successfully on one real sample).
+**Real bug found and fixed while building ball-height estimation** (see
+below): a homography is only defined up to overall scale, so `H` and `-H`
+decompose to two candidate cameras — one real, one its mirror image below
+the pitch — and the code picked one arbitrarily. Confirmed on real data (a
+well-fit homography decomposed to a camera 14.8m *below* ground) and fixed
+by keeping whichever candidate has the camera above the pitch. The
+decomposition-success rate is unchanged (still 100% on the same sample),
+but a real, important lesson surfaced with it: temporal smoothness alone
+can't validate absolute pose correctness — a consistently-wrong pose is
+just as smooth as a correct one.
 Only usable against `calibration_mode: trained`'s output today (directly,
 or wrapped in `hybrid`) —
 `PitchKeypointCalibrator`'s similarity-transform homography structurally
@@ -233,6 +243,23 @@ imgsz=640, dynamic=False)`.
   `class` field and per-object structure are designed to extend to this
   later without a breaking change, but nothing is implemented yet. SoccerNet
   Action Spotting is the reference benchmark to build toward.
+- **Ball height (Z) — attempted, math validated, real-footage accuracy not
+  trustworthy yet.** `agon.geometry.camera_pose.pixel_to_ray` +
+  `agon.analytics.ball_height.estimate_ball_position_3d` (classical
+  similar-triangles monocular depth from the ball's known ~22cm real size)
+  are built and validated to sub-millimeter accuracy synthetically. Real
+  footage (`scripts/validate_ball_height.py`) gave 15-26m estimated
+  heights on open play (should be near 0) — checked, not assumed, that
+  this doesn't correlate with detection confidence, and the recovered
+  camera height itself is stable frame-to-frame, ruling out simple
+  detection noise or pose jitter. Most likely explanation: on-plane (z=0)
+  homography accuracy doesn't guarantee the full 3D pose decomposition is
+  accurate enough for off-plane extrapolation over tens of meters at a
+  shallow broadcast-camera angle — a concrete consequence of
+  `camera_pose_from_homography`'s already-documented noise sensitivity.
+  This project has no ground-truth calibration file to isolate the cause
+  further. Not wired into the pipeline or export — shipped as a validated
+  building block, not a production-ready feature.
 - **Trained pitch calibration is now fully wired: export field, and a 3-way
   hybrid chain.** `calibration_mode: trained`, `agon.geometry.camera_pose`,
   `FrameRecord.camera_pose` (pan/tilt/roll/position/focal length, populated
@@ -327,7 +354,7 @@ one for new footage).
 
 ```bash
 uv sync --extra dev
-pytest                              # 182 tests, pure logic + synthetic inputs, no video/model needed
+pytest                              # 190 tests, pure logic + synthetic inputs, no video/model needed
 ruff check src/ tests/ && ruff format --check src/ tests/
 mypy src/agon
 pre-commit install                  # run the above automatically on commit

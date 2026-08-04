@@ -472,7 +472,50 @@ validating end-to-end against real footage:
   `run_pipeline_streaming` compute it lazily (only when JSONL/Parquet
   export is actually requested) via a new `_camera_pose_records` helper.
 
+- **Ball height (Z) estimation -- attempted, math validated, real-footage
+  accuracy not yet trustworthy.** `agon.geometry.camera_pose.pixel_to_ray`
+  (inverse of `project_point`: a pixel + camera pose defines a 3D ray, not
+  a point) and `agon.analytics.ball_height.estimate_ball_position_3d`
+  (classical similar-triangles monocular depth from the ball's known
+  ~22cm real diameter, breaking the ray's depth ambiguity) are built and
+  validated to sub-millimeter accuracy synthetically. Real-footage
+  validation (`scripts/validate_ball_height.py`, real ball detections +
+  real `TrainedPitchCalibrator` poses) found 15-26m estimated heights on
+  real open play (should be near 0m) -- checked, not assumed, that this
+  doesn't correlate with detection confidence (0.7+-confidence detections
+  just as wrong, r=0.11) or camera-pose instability (recovered height
+  stable frame-to-frame, ~15m). Most likely explanation, given what's
+  been checked: on-plane (z=0) homography accuracy doesn't guarantee the
+  full 3D decomposition is accurate enough for off-plane extrapolation
+  over tens of meters at a shallow broadcast-camera angle -- a concrete
+  consequence of `camera_pose_from_homography`'s already-documented noise
+  sensitivity, not a new problem. This project has no ground-truth
+  calibration file to isolate the cause further (same standing gap as
+  Phase 12's item 4). Shipped as a validated building block, explicitly
+  not wired into the pipeline or export -- not production-ready.
+
 ### Fixed
+- **`camera_pose_from_homography` had a real sign ambiguity**, found
+  while validating ball-height estimation against real footage. A
+  homography is only defined up to overall scale -- `H` and `-H`
+  represent the identical projective transformation -- so the
+  decomposition's normalization step arbitrarily picked one of two
+  candidate cameras: the physically real one, or its mirror image below
+  the pitch. Confirmed on a real, well-conditioned fitted homography (7
+  RANSAC inliers, <5px reprojection residual) that decomposed to a camera
+  position 14.8m *below* the pitch. Fixed by computing both sign
+  candidates and keeping whichever has the camera above the pitch
+  (`position[2] < 0`, a real physical constraint for any broadcast/
+  tactical soccer camera, not a heuristic). Verified two ways: feeding
+  the same homography and its negation now give identical results (on
+  and off the z=0 plane, to sub-micron precision) where before the fix
+  they diverged; and a real-homography regression test pinning the exact
+  matrix that surfaced the bug. **Decomposition success rate is
+  unchanged** (100% on the same real sample, before and after) -- this
+  fixes pose *content*, not coverage; a previously-published claim in
+  the project plan that resolved poses were "smooth and physically
+  plausible" turned out to be checking temporal stability only, which a
+  consistently-wrong pose also has -- corrected in the plan directly.
 - `OnnxDetector` always supported a configurable input resolution, but
   nothing above it in the pipeline ever passed one through — inference
   silently ran at 640x640 regardless of what resolution a checkpoint was

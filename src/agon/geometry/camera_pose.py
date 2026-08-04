@@ -199,6 +199,30 @@ def camera_pose_from_homography(
     in general -- this is a known, inherent property of single-view
     self-calibration (it has far less constraint to work with than a
     multi-view calibration would), not specific to this port.
+
+    **A real, genuine sign ambiguity, found and fixed against real footage,
+    not caught by synthetic testing alone.** A homography is only defined
+    up to an overall scale -- ``H`` and ``-H`` represent the identical
+    projective transformation -- so the normalization below (``lambda1``/
+    ``lambda2``, both positive by construction: reciprocals of vector
+    norms) arbitrarily picks *one* of two equally-valid-looking
+    decompositions. One is the physically real camera; the other is its
+    mirror image through the pitch plane (the same pose with position and
+    view direction negated) -- mathematically consistent with the same 2D
+    correspondences, but physically impossible (a camera at or below pitch
+    level). Confirmed empirically on `TrainedPitchCalibrator`-resolved real
+    footage: a well-conditioned, low-reprojection-error real homography
+    (7 RANSAC inliers, <5px residual) decomposed to a camera position
+    ``14.8m`` *below* the pitch -- flipping every sign-dependent quantity
+    (``lambda1``/``lambda2``/``lambda3``, hence ``r0``/``r1``/``translation``;
+    ``r2 = r0 x r1`` is sign-*invariant* under negating both factors, so it
+    alone doesn't need flipping) recovered ``14.8m`` *above* the pitch --
+    the physically correct answer, confirmed by every other resolved
+    quantity (focal length, in-plane rotation) being identical between the
+    two candidates. Resolved by computing both candidates and keeping
+    whichever has a camera position above the pitch (``position[2] < 0``,
+    this project's convention) -- a real, always-true physical constraint
+    for a broadcast/tactical soccer camera, not a heuristic tie-break.
     """
     principal_point = (image_width / 2, image_height / 2)
     focal_lengths = estimate_focal_length_from_plane_homography(homography, principal_point)
@@ -223,19 +247,30 @@ def camera_pose_from_homography(
     lambda2 = 1 / norm1
     lambda3 = np.sqrt(lambda1 * lambda2)
 
-    r0 = h_prime[:, 0] * lambda1
-    r1 = h_prime[:, 1] * lambda2
-    r2 = np.cross(r0, r1)
+    def _decompose(sign: float) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+        r0 = h_prime[:, 0] * lambda1 * sign
+        r1 = h_prime[:, 1] * lambda2 * sign
+        r2 = np.cross(r0, r1)  # sign-invariant: cross(-a, -b) == cross(a, b)
 
-    rotation = np.column_stack((r0, r1, r2))
-    u, _s, vh = np.linalg.svd(rotation)
-    rotation = u @ vh
-    if np.linalg.det(rotation) < 0:
-        u[:, 2] *= -1
+        rotation = np.column_stack((r0, r1, r2))
+        u, _s, vh = np.linalg.svd(rotation)
         rotation = u @ vh
+        if np.linalg.det(rotation) < 0:
+            u[:, 2] *= -1
+            rotation = u @ vh
 
-    translation = h_prime[:, 2] * lambda3
-    position = -rotation.T @ translation
+        translation = h_prime[:, 2] * lambda3 * sign
+        position = -rotation.T @ translation
+        return rotation, position
+
+    rotation, position = _decompose(1.0)
+    if position[2] >= 0:
+        rotation, position = _decompose(-1.0)
+        if position[2] >= 0:
+            # Neither sign gives a physically plausible (above-pitch)
+            # camera -- a genuinely degenerate/unusable homography, not a
+            # case to guess on.
+            return None
 
     return CameraPose(
         position=position,
@@ -332,3 +367,28 @@ def project_point(pose: CameraPose, point_3d: Point3D) -> Point | None:
     x = rotated[0] * pose.x_focal_length + pose.principal_point[0]
     y = rotated[1] * pose.y_focal_length + pose.principal_point[1]
     return float(x), float(y)
+
+
+def pixel_to_ray(
+    pose: CameraPose, pixel: Point
+) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+    """The inverse of ``project_point``: given a pixel position, returns
+    the 3D camera ray -- ``(origin, unit_direction)``, both in pitch-space
+    meters -- that projects to that pixel under ``pose``.
+
+    A single pixel alone doesn't determine depth: *every* real-world point
+    along this ray (``origin + t * unit_direction``, for ``t >= 0``)
+    projects to the same pixel. Recovering *which* point on the ray a
+    detection actually corresponds to needs an extra constraint pixel
+    position alone can't supply -- e.g. a known real-world size (see
+    ``agon.analytics.ball_height``, which uses this for exactly that) or an
+    assumption the point lies on a known plane (e.g. ``z=0``, the pitch
+    surface itself, which is what every existing ``PitchCalibrator`` in
+    this project already assumes implicitly).
+    """
+    cam_x = (pixel[0] - pose.principal_point[0]) / pose.x_focal_length
+    cam_y = (pixel[1] - pose.principal_point[1]) / pose.y_focal_length
+    camera_space_direction = np.array([cam_x, cam_y, 1.0])
+    world_direction = pose.rotation.T @ camera_space_direction
+    world_direction = world_direction / np.linalg.norm(world_direction)
+    return pose.position.copy(), world_direction
