@@ -185,6 +185,7 @@ def leave_one_out_position_errors(
     keypoint_confidence: float,
     min_keypoints: int,
     ransac_reproj_threshold: float,
+    excluded_line_names: frozenset[str] = frozenset(),
 ) -> list[float]:
     """The real ground-truth accuracy check this project has never had
     (see project plan Phase 12 item 4 and
@@ -228,11 +229,50 @@ def leave_one_out_position_errors(
     project has no independently-annotated ground truth for *this*
     specific broadcast footage to separate keypoint-localization error
     from any other remaining cause.
+
+    **Follow-up finding, narrowing down the "not conclusively isolated"
+    note above**: a separate self-consistency check
+    (``scripts/measure_keypoint_self_consistency.py``, comparing pairs of
+    canonical keypoints that are the *same* real-world corner under two
+    different names -- no ground truth or homography needed at all) found
+    the error is not spread evenly across keypoint types. Touchline and
+    penalty-box corners were detected with sub-pixel consistency (0.3-0.7px
+    median gap between two names for the same real corner); six-yard-box
+    corners were off by 400-700px median -- essentially detecting the
+    wrong feature, not just imprecisely localizing the right one. Checked
+    against real SN-GSR-2025 training annotations directly (not assumed):
+    the canonical geometry mapping's own claimed correspondences are
+    correct in the raw ground truth, so this is a real model confusion
+    specific to the six-yard box (small, closely-spaced corners), not a
+    labeling bug. ``excluded_line_names`` exists to test whether excluding
+    known-unreliable line names from both fitting and evaluation recovers
+    real accuracy.
+
+    **That test failed -- reported honestly, not quietly dropped.**
+    Excluding all six ``Small rect.`` line names made real-footage
+    accuracy *worse*, not better: median error rose from 16.7m to 22.5m,
+    mean from 13.7m to 29.8m, and a 3354m outlier appeared (a classic
+    symptom of a near-degenerate homography fit) -- consistent with
+    removing those points shrinking the average per-frame keypoint count
+    enough to make some fits poorly conditioned, outweighing whatever
+    corruption they were introducing. So the six-yard-box self-consistency
+    finding above is real and confirmed, but it is *not* the dominant
+    cause of the 16.7m baseline error -- the touchline/penalty-box points
+    (sub-pixel self-consistent with each other) are apparently *also*
+    insufficient on their own to fit an accurate homography. The root
+    cause remains genuinely open: possibly still keypoint-localization
+    precision (just not concentrated where the self-consistency check
+    could see it, since that check only catches errors between points
+    that are supposed to coincide, not absolute placement error on points
+    with no partner to compare against), possibly something about how few
+    total points a typical frame provides for fitting. Needs real
+    ground-truth annotation for this footage to make further progress
+    with confidence, not another guess-and-test cycle.
     """
     confident = [
         (name, endpoint_idx, float(keypoints[i][0]), float(keypoints[i][1]))
         for i, (name, endpoint_idx) in enumerate(CANONICAL_KEYPOINTS)
-        if keypoints[i][2] >= keypoint_confidence
+        if keypoints[i][2] >= keypoint_confidence and name not in excluded_line_names
     ]
     if len(confident) < min_keypoints + 1:
         return []

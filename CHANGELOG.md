@@ -522,6 +522,30 @@ validating end-to-end against real footage:
   annotated ground truth for this specific broadcast footage to fully
   separate keypoint-localization error from any other cause.
 
+  **Follow-up (same day): narrowed the cause, then a test of the fix
+  failed -- both reported honestly.** A separate self-consistency check
+  (`scripts/measure_keypoint_self_consistency.py`), comparing pairs of
+  canonical keypoints that are the *same* real-world corner under two
+  different names (no ground truth or homography needed at all), found
+  the error is not spread evenly: touchline/penalty-box corners were
+  detected with sub-pixel consistency (0.3-0.7px median), while
+  six-yard-box corners were off by 400-700px median -- essentially
+  detecting the wrong feature, not just imprecisely localizing the right
+  one. Checked against real SN-GSR-2025 training annotations directly:
+  the canonical geometry mapping's own claimed correspondences are
+  correct in the raw ground truth, so this is a real model confusion,
+  not a labeling bug. Added `excluded_line_names` to
+  `leave_one_out_position_errors` to test excluding the six-yard box
+  entirely -- **the test failed**: real-footage accuracy got *worse*
+  (median 16.7m -> 22.5m, mean 13.7m -> 29.8m, plus a 3354m outlier, a
+  classic sign of a near-degenerate fit), most likely because removing
+  those points left too few per frame for a well-conditioned homography,
+  outweighing whatever corruption they introduced. The six-yard-box
+  finding is real and confirmed, but not the dominant cause of the
+  16.7m baseline. Root cause remains genuinely open -- needs real
+  ground-truth annotation for this footage to make further progress
+  with confidence rather than another guess-and-test cycle.
+
 ### Fixed
 - **`camera_pose_from_homography` had a real sign ambiguity**, found
   while validating ball-height estimation against real footage. A

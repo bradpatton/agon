@@ -46,6 +46,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--keypoint-confidence", type=float, default=0.3)
     parser.add_argument("--min-keypoints", type=int, default=4)
     parser.add_argument("--ransac-reproj-threshold", type=float, default=10.0)
+    parser.add_argument(
+        "--exclude-line",
+        action="append",
+        default=[],
+        dest="excluded_line_names",
+        help="Canonical line name to exclude entirely (both from fitting and evaluation), "
+        "e.g. --exclude-line 'Small rect. left main' --exclude-line 'Small rect. left top' -- "
+        "repeatable. See leave_one_out_position_errors's docstring for why this exists "
+        "(six-yard-box keypoints were found to be frequently misdetected on real footage).",
+    )
     return parser.parse_args()
 
 
@@ -76,6 +86,9 @@ def main() -> None:
         return
 
     calibrator = TrainedPitchCalibrator(str(args.model))
+    excluded_line_names = frozenset(args.excluded_line_names)
+    if excluded_line_names:
+        print(f"Excluding {sorted(excluded_line_names)} from fitting and evaluation.")
 
     all_errors: list[float] = []
     frames_checked = 0
@@ -86,6 +99,7 @@ def main() -> None:
             keypoint_confidence=args.keypoint_confidence,
             min_keypoints=args.min_keypoints,
             ransac_reproj_threshold=args.ransac_reproj_threshold,
+            excluded_line_names=excluded_line_names,
         )
         if errors:
             frames_checked += 1

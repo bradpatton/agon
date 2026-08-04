@@ -177,6 +177,35 @@ class TestLeaveOneOutPositionErrors:
         assert len(errors) == 15
         assert max(errors) > 0.01  # meaningfully nonzero, unlike the noise-free case
 
+    def test_excluded_line_names_removes_a_corrupting_keypoint(self):
+        # Simulates the real six-yard-box confusion found on real footage:
+        # one confidently-detected keypoint is actually at a wildly wrong
+        # pixel (a different real feature entirely, not just imprecise).
+        # Left in, it corrupts every fit it participates in; excluded by
+        # name, the remaining points should fit and evaluate cleanly again.
+        homography = np.array([[50.0, 5.0, 960.0], [-3.0, 45.0, 540.0], [0.0001, 0.0, 1.0]])
+        keypoints = self._confident_keypoints_from_real_correspondences(homography, num_points=15)
+        corrupted_name, _ = CANONICAL_KEYPOINTS[0]
+        keypoints[0, 0] += 500.0  # wildly wrong pixel, not just noisy
+
+        errors_with_corruption = leave_one_out_position_errors(
+            keypoints, keypoint_confidence=0.3, min_keypoints=4, ransac_reproj_threshold=100.0
+        )
+        errors_excluding_corrupted = leave_one_out_position_errors(
+            keypoints,
+            keypoint_confidence=0.3,
+            min_keypoints=4,
+            ransac_reproj_threshold=100.0,
+            excluded_line_names=frozenset({corrupted_name}),
+        )
+
+        assert max(errors_with_corruption) > 1.0
+        assert max(errors_excluding_corrupted) < 1e-4
+        # Exclusion is by line name, and "Side line top" contributes both
+        # of its endpoints among the first 15 canonical keypoints -- both
+        # are gone, not just the corrupted one (13 = 15 - 2).
+        assert len(errors_excluding_corrupted) == 13
+
 
 def _make_calibrator_with_mocked_session(
     keypoints_by_frame: dict[int, np.ndarray],
