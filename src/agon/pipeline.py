@@ -31,6 +31,7 @@ from agon.detection.base import (
     interpolate_ball_positions,
 )
 from agon.export.schema import (
+    CameraPoseRecord,
     FrameRecord,
     MatchStats,
     MatchSummary,
@@ -48,6 +49,7 @@ from agon.export.writer import (
     write_schema_json,
 )
 from agon.geometry.bbox import Point
+from agon.geometry.camera_pose import camera_pose_from_homography, pan_tilt_roll_degrees
 from agon.geometry.hybrid_pitch_calibrator import HybridPitchCalibrator
 from agon.geometry.pitch_keypoint_calibrator import PitchKeypointCalibrator
 from agon.geometry.trained_pitch_calibrator import TrainedPitchCalibrator
@@ -158,15 +160,22 @@ def _make_pitch_calibrator(
     'dynamic' is a classical-CV first cut (center-circle detection), not a
     trained keypoint model -- see PitchKeypointCalibrator's docstring for
     what it actually solves and its real limitations before trusting its
-    output over the static calibration. 'hybrid' (see
-    HybridPitchCalibrator) tries dynamic first and falls back to static
-    per point -- measured to cover meaningfully more real detections than
-    either alone, since the two mostly fail on different frames. 'trained'
-    (see TrainedPitchCalibrator) uses a real trained keypoint-detection
-    model -- requires ``pitch_calibration_model_path``; real, measured
-    tradeoff against 'dynamic', not a strict upgrade (see that class's
-    docstring and ``scripts/validate_trained_pitch_calibrator.py``), not
-    yet wired into 'hybrid's fallback chain.
+    output over the static calibration. 'trained' (see
+    TrainedPitchCalibrator) uses a real trained keypoint-detection model --
+    requires ``pitch_calibration_model_path``; real, measured tradeoff
+    against 'dynamic', not a strict upgrade (see that class's docstring and
+    ``scripts/validate_trained_pitch_calibrator.py``). 'hybrid' (see
+    HybridPitchCalibrator) tries dynamic first and falls back to static per
+    point -- measured to cover meaningfully more real detections than
+    either alone, since the two mostly fail on different frames. When
+    ``pitch_calibration_model_path`` is also given, 'hybrid' becomes a
+    3-way chain (trained -> dynamic -> static, nesting HybridPitchCalibrator
+    with no new code) rather than 2-way -- trained's much higher coverage
+    on typical footage (92.5% vs. dynamic's 13.7% on one real sample) makes
+    it worth trying first, with dynamic/static as real fallbacks for the
+    framing dynamic still occasionally wins on (see TrainedPitchCalibrator's
+    docstring). Without a model path, 'hybrid' stays exactly the original
+    2-way dynamic/static chain -- fully backward compatible.
 
     ``min_grass_fraction`` is forwarded to ``PitchKeypointCalibrator`` (see
     its docstring) -- reuses ``PipelineConfig.min_grass_fraction``, the
@@ -181,13 +190,19 @@ def _make_pitch_calibrator(
             )
         return TrainedPitchCalibrator(pitch_calibration_model_path)
     if mode == "hybrid":
-        return HybridPitchCalibrator(
+        dynamic_then_static = HybridPitchCalibrator(
             primary=PitchKeypointCalibrator(
                 court_width_m=calibration.court_width_m,
                 min_grass_fraction=min_grass_fraction,
             ),
             fallback=ViewTransformer(calibration),
         )
+        if pitch_calibration_model_path is not None:
+            return HybridPitchCalibrator(
+                primary=TrainedPitchCalibrator(pitch_calibration_model_path),
+                fallback=dynamic_then_static,
+            )
+        return dynamic_then_static
     if mode == "dynamic":
         return PitchKeypointCalibrator(
             court_width_m=calibration.court_width_m, min_grass_fraction=min_grass_fraction
@@ -209,6 +224,62 @@ def _build_pitch_calibrator(
     )
     calibrator.calibrate(video_frames)
     return calibrator
+
+
+def _camera_pose_records(
+    pitch_calibrator: PitchCalibrator,
+    num_frames: int,
+    image_width: int,
+    image_height: int,
+    frame_offset: int = 0,
+) -> list[CameraPoseRecord | None]:
+    """Per-frame full camera pose (see ``agon.geometry.camera_pose``), for
+    every frame this call covers -- ``None`` for a frame the active
+    calibrator either didn't resolve, or resolved without a real per-frame
+    homography to decompose.
+
+    Only calibrators exposing a ``.homography(frame_idx)`` method beyond
+    the ``PitchCalibrator`` protocol (``TrainedPitchCalibrator``, or a
+    ``HybridPitchCalibrator`` wrapping one -- see that class's own
+    passthrough) can produce anything here; every other calibrator/frame
+    combination is correctly ``None``, not a guess -- ``ViewTransformer``'s
+    static homography is real but usually uncalibrated in practice, and
+    ``PitchKeypointCalibrator``'s similarity-transform output structurally
+    lacks the perspective information ``camera_pose_from_homography`` needs
+    (confirmed, not assumed -- see that module's docstring). Checking once
+    via ``getattr`` up front, rather than per frame, avoids importing
+    ``TrainedPitchCalibrator`` here just to ``isinstance``-check for it.
+    """
+    homography_fn = getattr(pitch_calibrator, "homography", None)
+    if homography_fn is None:
+        return [None] * num_frames
+
+    records: list[CameraPoseRecord | None] = []
+    for local_idx in range(num_frames):
+        homography = homography_fn(frame_offset + local_idx)
+        if homography is None:
+            records.append(None)
+            continue
+        pose = camera_pose_from_homography(homography, image_width, image_height)
+        if pose is None:
+            records.append(None)
+            continue
+        pan, tilt, roll = pan_tilt_roll_degrees(pose)
+        records.append(
+            CameraPoseRecord(
+                pan_degrees=pan,
+                tilt_degrees=tilt,
+                roll_degrees=roll,
+                position_m=(
+                    float(pose.position[0]),
+                    float(pose.position[1]),
+                    float(pose.position[2]),
+                ),
+                x_focal_length_px=pose.x_focal_length,
+                y_focal_length_px=pose.y_focal_length,
+            )
+        )
+    return records
 
 
 def _build_team_classifier(
@@ -508,6 +579,10 @@ def run_pipeline(
 
         needs_records = {"jsonl", "parquet"} & set(formats)
         if needs_records:
+            frame_height, frame_width = video_frames[0].shape[:2]
+            camera_poses = _camera_pose_records(
+                pitch_calibrator, len(video_frames), frame_width, frame_height
+            )
             frame_records = build_frame_records(
                 tracks,
                 team_ball_control_array.tolist(),
@@ -517,6 +592,7 @@ def run_pipeline(
                 frame_ids=kept_frame_ids,
                 frame_classifications=frame_classifications,
                 game_clock_s_per_frame=game_clock_s_per_frame,
+                camera_poses=camera_poses,
             )
             if "jsonl" in formats:
                 write_jsonl(frame_records, export_dir / f"{video_id}_frames.jsonl")
@@ -756,6 +832,14 @@ def run_pipeline_streaming(
             accumulate_match_stats(match_stats, tracks, chunk_team_ball_control)
 
             if jsonl_writer is not None or parquet_writer is not None:
+                chunk_height, chunk_width = video_frames[0].shape[:2]
+                camera_poses_chunk = _camera_pose_records(
+                    pitch_calibrator,
+                    len(video_frames),
+                    chunk_width,
+                    chunk_height,
+                    frame_offset=frame_offset,
+                )
                 frame_records = build_frame_records(
                     tracks,
                     chunk_team_ball_control,
@@ -766,6 +850,7 @@ def run_pipeline_streaming(
                     frame_ids=kept_frame_ids,
                     frame_classifications=frame_classifications_chunk,
                     game_clock_s_per_frame=game_clock_s_chunk,
+                    camera_poses=camera_poses_chunk,
                 )
                 if jsonl_writer is not None:
                     jsonl_writer.write_chunk(frame_records)

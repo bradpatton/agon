@@ -107,7 +107,15 @@ Schema is published via `--format schema`):
       "distance_m": 812.4,
       "has_ball": true
     }
-  ]
+  ],
+  "camera_pose": {
+    "pan_degrees": 22.8,
+    "tilt_degrees": -103.5,
+    "roll_degrees": -0.3,
+    "position_m": [10.2, -58.4, -21.1],
+    "x_focal_length_px": 3203.4,
+    "y_focal_length_px": 3203.4
+  }
 }
 ```
 
@@ -116,7 +124,11 @@ Schema is published via `--format schema`):
 pitch area, or when the active `PitchCalibrator` had no usable reference in
 that frame (see [Pitch calibration](#pitch-calibration)) — this is a real
 "we don't know" signal, not a bug, and downstream ML code should treat it
-that way rather than imputing a value. `<video>_summary.json` has
+that way rather than imputing a value. `camera_pose` is `null` unless the
+active calibrator resolved a real per-frame homography for that frame (see
+[Pitch calibration](#pitch-calibration)) — today, only `calibration_mode:
+trained` (directly or wrapped in `hybrid`) can produce one; every other
+frame/calibrator combination is `null`. `<video>_summary.json` has
 match-level aggregates (possession %, per-player total distance / avg / max
 speed) built from the same data.
 
@@ -162,9 +174,12 @@ smooth, physically-plausible values frame to frame. But on a tight
 center-circle-only shot with few other line features visible, its coverage
 was *lower* than `dynamic`'s (13.3% vs. 62.8%) — the two calibrators'
 strengths are framing-dependent, see
-`scripts/validate_trained_pitch_calibrator.py`. Not yet wired into
-`hybrid`'s fallback chain (though `HybridPitchCalibrator` nests without new
-code for anyone who wants a 3-way chain today).
+`scripts/validate_trained_pitch_calibrator.py`. `calibration_mode: "hybrid"`
++ `pitch_calibration_model_path` together become a 3-way chain (trained →
+dynamic → static, `HybridPitchCalibrator` nested with no new code) rather
+than the plain 2-way dynamic/static chain — trained tried first given its
+much higher typical-footage coverage, with the other two as real fallbacks
+for the framing it doesn't win on.
 
 `agon.geometry.camera_pose` (`camera_pose_from_homography`): given a real
 projective homography, recovers full camera pose — pan/tilt/roll/3D
@@ -174,13 +189,15 @@ single-view self-calibration algorithm from Hartley & Zisserman's
 *Multiple View Geometry*). Validated synthetically to sub-millipixel
 reprojection accuracy, and against real footage via `TrainedPitchCalibrator`
 above (925/925 resolved frames decomposed successfully on one real sample).
-Only usable against `calibration_mode: trained`'s output today —
+Only usable against `calibration_mode: trained`'s output today (directly,
+or wrapped in `hybrid`) —
 `PitchKeypointCalibrator`'s similarity-transform homography structurally
 lacks the perspective information this needs (confirmed empirically, not
 assumed — see that module's own docstring), and `ViewTransformer`'s static
-homography is real but typically uncalibrated in practice. Not yet wired
-into the export schema or pipeline — currently a library capability, not a
-pipeline stage.
+homography is real but typically uncalibrated in practice. Wired into the
+export schema (`FrameRecord.camera_pose`) — populated whenever the active
+calibrator resolved a real per-frame homography for that frame, null
+otherwise.
 
 ### Team classification
 
@@ -216,16 +233,17 @@ imgsz=640, dynamic=False)`.
   `class` field and per-object structure are designed to extend to this
   later without a breaking change, but nothing is implemented yet. SoccerNet
   Action Spotting is the reference benchmark to build toward.
-- **Trained pitch calibration ships as a library capability, not yet a
-  first-class pipeline/export feature.** `calibration_mode: trained` and
-  `agon.geometry.camera_pose` are both real, built, and validated against
-  real footage (see the "Pitch calibration" section above for the actual
-  numbers) — but the export schema has no field for camera pose yet, and
-  `trained` isn't the default or wired into `hybrid`'s fallback chain.
-  Natural next steps: add camera-pose fields to `ObjectRecord`/`FrameRecord`
-  for anyone who wants them in the export, and consider a 3-way hybrid
-  chain (trained → dynamic → static) as the new recommended default given
-  `trained`'s much higher coverage on typical (non-tight-shot) footage.
+- **Trained pitch calibration is now fully wired: export field, and a 3-way
+  hybrid chain.** `calibration_mode: trained`, `agon.geometry.camera_pose`,
+  `FrameRecord.camera_pose` (pan/tilt/roll/position/focal length, populated
+  whenever the active calibrator resolved a real per-frame homography for
+  that frame — see the "Pitch calibration" section above for the coverage
+  numbers), and `calibration_mode: "hybrid"` + `pitch_calibration_model_path`
+  together (trained → dynamic → static, `HybridPitchCalibrator` nested with
+  no new code) are all real, built, tested, and validated. `trained` isn't
+  the pipeline's *default* — it needs a checkpoint most users won't have,
+  and its coverage is framing-dependent (see above) — but every piece is in
+  place for anyone who has one.
 - **Jersey number recognition now uses OCR (EasyOCR), not a trained
   classifier — the classifier is kept but discouraged.** The original
   approach (`agon.jersey.OnnxJerseyClassifier`, a classifier trained on
@@ -309,7 +327,7 @@ one for new footage).
 
 ```bash
 uv sync --extra dev
-pytest                              # 169 tests, pure logic + synthetic inputs, no video/model needed
+pytest                              # 182 tests, pure logic + synthetic inputs, no video/model needed
 ruff check src/ tests/ && ruff format --check src/ tests/
 mypy src/agon
 pre-commit install                  # run the above automatically on commit

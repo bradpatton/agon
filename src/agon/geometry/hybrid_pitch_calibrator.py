@@ -20,6 +20,9 @@ hardcode that -- it just tries whichever calibrator is given first.
 
 from __future__ import annotations
 
+import numpy as np
+import numpy.typing as npt
+
 from agon.geometry.bbox import Point
 from agon.interfaces import PitchCalibrator
 from agon.io.video import Frame
@@ -39,3 +42,27 @@ class HybridPitchCalibrator:
         if result is not None:
             return result
         return self.fallback.transform_point(point, frame_idx)
+
+    def homography(self, frame_idx: int = 0) -> npt.NDArray[np.float64] | None:
+        """Passthrough to whichever wrapped calibrator resolved this frame
+        *and* exposes a real homography (today: only
+        ``TrainedPitchCalibrator``, or another ``HybridPitchCalibrator``
+        wrapping one -- this method recurses correctly since it has the
+        same name/signature). Not part of the ``PitchCalibrator`` protocol,
+        same as ``TrainedPitchCalibrator.homography`` -- exists so wrapping
+        a trained calibrator in a hybrid chain doesn't silently lose its
+        camera-pose-decomposition capability (see
+        ``agon.geometry.camera_pose``). Tries primary then fallback, same
+        order as ``transform_point`` -- returns None if neither resolved
+        this frame with a real homography (e.g. both wrapped calibrators
+        are similarity-transform-only, or neither resolved this frame at
+        all), not a guess.
+        """
+        for calibrator in (self.primary, self.fallback):
+            homography_fn = getattr(calibrator, "homography", None)
+            if homography_fn is None:
+                continue
+            result = homography_fn(frame_idx)
+            if result is not None:
+                return result
+        return None

@@ -17,6 +17,18 @@ class _FakeCalibrator:
         return self.transform_result
 
 
+class _FakeCalibratorWithHomography(_FakeCalibrator):
+    """Like TrainedPitchCalibrator, exposes a real .homography() method
+    beyond the PitchCalibrator protocol -- controlled by the test."""
+
+    def __init__(self, transform_result=None, homography_result=None):
+        super().__init__(transform_result)
+        self.homography_result = homography_result
+
+    def homography(self, frame_idx=0):
+        return self.homography_result
+
+
 def test_uses_primary_result_when_available():
     primary = _FakeCalibrator(transform_result=(1.0, 2.0))
     fallback = _FakeCalibrator(transform_result=(9.0, 9.0))
@@ -71,3 +83,43 @@ def test_frame_idx_is_passed_through_to_both_calibrators():
 
     assert primary.seen_frame_idx == [7]
     assert fallback.seen_frame_idx == [7]
+
+
+class TestHomographyPassthrough:
+    def test_uses_primary_homography_when_available(self):
+        primary = _FakeCalibratorWithHomography(homography_result="primary-H")
+        fallback = _FakeCalibratorWithHomography(homography_result="fallback-H")
+        hybrid = HybridPitchCalibrator(primary, fallback)
+
+        assert hybrid.homography(frame_idx=0) == "primary-H"
+
+    def test_falls_back_when_primary_has_no_homography_method(self):
+        primary = _FakeCalibrator()  # no .homography() at all, e.g. ViewTransformer
+        fallback = _FakeCalibratorWithHomography(homography_result="fallback-H")
+        hybrid = HybridPitchCalibrator(primary, fallback)
+
+        assert hybrid.homography(frame_idx=0) == "fallback-H"
+
+    def test_falls_back_when_primary_homography_returns_none_for_this_frame(self):
+        primary = _FakeCalibratorWithHomography(homography_result=None)
+        fallback = _FakeCalibratorWithHomography(homography_result="fallback-H")
+        hybrid = HybridPitchCalibrator(primary, fallback)
+
+        assert hybrid.homography(frame_idx=0) == "fallback-H"
+
+    def test_none_when_neither_calibrator_exposes_homography(self):
+        primary = _FakeCalibrator()
+        fallback = _FakeCalibrator()
+        hybrid = HybridPitchCalibrator(primary, fallback)
+
+        assert hybrid.homography(frame_idx=0) is None
+
+    def test_recurses_through_a_nested_hybrid_calibrator(self):
+        inner_primary = _FakeCalibratorWithHomography(homography_result="inner-H")
+        inner_fallback = _FakeCalibrator()
+        inner_hybrid = HybridPitchCalibrator(inner_primary, inner_fallback)
+
+        outer_fallback = _FakeCalibratorWithHomography(homography_result="outer-H")
+        outer_hybrid = HybridPitchCalibrator(primary=inner_hybrid, fallback=outer_fallback)
+
+        assert outer_hybrid.homography(frame_idx=0) == "inner-H"

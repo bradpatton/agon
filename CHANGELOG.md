@@ -452,9 +452,25 @@ validating end-to-end against real footage:
   center-circle-only `benchmark_clip.mp4`, coverage was *lower* than
   `dynamic`'s (13.3% vs. 62.8%) -- the two calibrators' strengths are
   framing-dependent, confirmed empirically rather than assumed either
-  way. Not yet the default, and not yet wired into `hybrid`'s fallback
-  chain (though `HybridPitchCalibrator` nests without new code for a
-  3-way chain today).
+  way. Not yet the default.
+
+- **`FrameRecord.camera_pose`, and `calibration_mode: "hybrid"` +
+  `pitch_calibration_model_path` as a 3-way fallback chain.** Both
+  follow-ons to `TrainedPitchCalibrator` above. `HybridPitchCalibrator`
+  gained a `.homography(frame_idx)` passthrough (tries primary then
+  fallback, recurses correctly through nested hybrids) so wrapping a
+  trained calibrator in a hybrid chain doesn't silently lose its
+  camera-pose capability. `_make_pitch_calibrator`'s `'hybrid'` branch now
+  builds a 3-way chain (trained -> dynamic -> static) when a model path is
+  given, and stays exactly the original 2-way dynamic/static chain
+  otherwise -- fully backward compatible, no config migration needed.
+  `CameraPoseRecord` (pan/tilt/roll degrees, position meters, focal
+  lengths) is a new nullable field on `FrameRecord`, populated whenever
+  the active calibrator resolved a real per-frame homography for that
+  frame via `agon.geometry.camera_pose` -- null for every other
+  frame/calibrator combination, not a guess. Both `run_pipeline` and
+  `run_pipeline_streaming` compute it lazily (only when JSONL/Parquet
+  export is actually requested) via a new `_camera_pose_records` helper.
 
 ### Fixed
 - `OnnxDetector` always supported a configurable input resolution, but

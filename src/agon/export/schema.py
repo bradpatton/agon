@@ -79,6 +79,37 @@ class ObjectRecord(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+class CameraPoseRecord(BaseModel):
+    """Full 3D camera pose for one frame, from
+    ``agon.geometry.camera_pose.camera_pose_from_homography`` -- decoded
+    from a real projective pitch-plane homography, not just a flat
+    pixel<->pitch mapping. Deliberately holds pan/tilt/roll (degrees) and
+    position (meters) rather than the raw 3x3 rotation matrix
+    ``CameraPose.rotation`` carries internally -- easier for downstream
+    consumers to use directly, and still fully reconstructable (see
+    ``agon.geometry.camera_pose.pan_tilt_roll_to_rotation``) for anyone who
+    needs the matrix back.
+
+    Only ever populated for frames resolved by a calibrator that exposes a
+    real per-frame homography (today: ``TrainedPitchCalibrator``, or a
+    ``HybridPitchCalibrator`` wrapping one) -- see
+    ``agon.geometry.camera_pose``'s own module docstring for why
+    ``ViewTransformer``/``PitchKeypointCalibrator`` structurally can't
+    produce one. Most frames in most clips will have this null; that's
+    real "no per-frame homography available here," not a bug.
+    """
+
+    pan_degrees: float
+    tilt_degrees: float
+    roll_degrees: float
+    position_m: tuple[float, float, float] = Field(
+        description="Camera position in pitch-space meters (same convention as "
+        "agon.geometry.pitch_keypoints: origin at pitch center, x = length, y = width)."
+    )
+    x_focal_length_px: float
+    y_focal_length_px: float
+
+
 class FrameRecord(BaseModel):
     schema_version: str = SCHEMA_VERSION
     video_id: str
@@ -100,6 +131,12 @@ class FrameRecord(BaseModel):
         "Null unless a clock_calibration was configured and the clock was "
         "readable in this frame -- distinct from timestamp_s, which is the "
         "video file's own time axis.",
+    )
+    camera_pose: CameraPoseRecord | None = Field(
+        default=None,
+        description="Full 3D camera pose for this frame, if a calibrator that exposes a "
+        "real per-frame homography resolved it (see CameraPoseRecord). Null otherwise "
+        "-- most frames, with today's calibrators.",
     )
 
 
@@ -131,6 +168,7 @@ def build_frame_records(
     frame_ids: list[int] | None = None,
     frame_classifications: list[str] | None = None,
     game_clock_s_per_frame: list[float | None] | None = None,
+    camera_poses: list[CameraPoseRecord | None] | None = None,
 ) -> list[FrameRecord]:
     """``frame_offset``: global (match-relative) index of ``tracks``' first
     frame. Only matters for chunked/streaming processing, where ``tracks``
@@ -145,11 +183,10 @@ def build_frame_records(
     and a single offset can't reconstruct their true indices. None (the
     default) keeps the contiguous frame_offset + local_idx behavior.
 
-    ``frame_classifications``/``game_clock_s_per_frame``: parallel to
-    ``tracks["players"]`` (one entry per frame in this call), from
-    ``agon.broadcast``. Both default to None (not just an empty
-    list) when frame_filter_mode='off', leaving every record's
-    frame_classification/game_clock_s null.
+    ``frame_classifications``/``game_clock_s_per_frame``/``camera_poses``:
+    parallel to ``tracks["players"]`` (one entry per frame in this call).
+    All default to None (not just an empty list) when the corresponding
+    feature isn't in use, leaving every record's field null.
     """
     num_frames = len(tracks["players"])
     records = []
@@ -195,6 +232,7 @@ def build_frame_records(
                     if game_clock_s_per_frame is not None
                     else None
                 ),
+                camera_pose=(camera_poses[local_idx] if camera_poses is not None else None),
             )
         )
 

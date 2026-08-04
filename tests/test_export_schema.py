@@ -3,6 +3,7 @@ import json
 import pytest
 
 from agon.export.schema import (
+    CameraPoseRecord,
     MatchStats,
     ObjectClass,
     accumulate_match_stats,
@@ -140,6 +141,33 @@ class TestBuildFrameRecords:
         [record] = build_frame_records(tracks, [0], [(0.0, 0.0)], "v", 24.0)
         [player] = record.objects
         assert player.jersey_number == 10
+
+    def test_camera_pose_defaults_to_none(self):
+        # No calibrator with a real per-frame homography was involved --
+        # camera_poses isn't passed at all (distinct from an explicit list
+        # of Nones, same convention as frame_classifications/game_clock_s).
+        records = build_frame_records(_sample_tracks(), [1, 0], [(0.0, 0.0), (0.0, 0.0)], "v", 24.0)
+        assert all(r.camera_pose is None for r in records)
+
+    def test_camera_pose_passes_through_when_present(self):
+        pose = CameraPoseRecord(
+            pan_degrees=1.0,
+            tilt_degrees=100.0,
+            roll_degrees=0.5,
+            position_m=(0.0, -60.0, -20.0),
+            x_focal_length_px=1400.0,
+            y_focal_length_px=1400.0,
+        )
+        records = build_frame_records(
+            _sample_tracks(),
+            [1, 0],
+            [(0.0, 0.0), (0.0, 0.0)],
+            "v",
+            24.0,
+            camera_poses=[pose, None],
+        )
+        assert records[0].camera_pose == pose
+        assert records[1].camera_pose is None
 
 
 class TestBuildMatchSummary:
