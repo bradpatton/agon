@@ -817,3 +817,44 @@ validating end-to-end against real footage:
   transform, camera-motion-compensated carry-forward between circle
   detections, a real accuracy-measurement harness, and the already-planned
   trained keypoint model.
+- **Six-yard-box keypoint confusion, root-caused: a model generalization
+  gap, not a training-data bug.** Follow-on to the earlier self-consistency
+  finding (six-yard-box corners detected ~400-700px away from where they
+  should coincide with adjacent keypoints). Reviewed several more real
+  frames from `match_10min_sample.mp4` -- the confusion is systematic, not
+  a one-off. Pulled a real SN-GSR-2025 training frame (`SNGS-060/
+  000179.jpg`) and its raw ground-truth line annotations directly, and
+  rendered "Small rect." (six-yard box) and "Big rect." (penalty box)
+  lines onto the real image: the training labels are correct -- the two
+  features are clearly distinct and correctly positioned in the raw data.
+  Rules out a labeling/conversion bug. The trained model (0.842 pose
+  mAP50 on SoccerNet's own validation split) simply fails to generalize
+  this distinction to this project's real target broadcast footage -- a
+  genuine domain gap SoccerNet's own validation split can't surface,
+  since it's drawn from the training distribution. Also explains why the
+  earlier six-yard-box exclusion experiment made accuracy *worse*: the
+  real-world precision gap isn't confined to one keypoint type.
+
+### Added
+- `scripts/annotate_ground_truth.py` -- interactive OpenCV click-to-
+  annotate tool (needs a real display, run locally). Cycles through all
+  38 canonical pitch keypoints per chosen video frame, records a human
+  click (or skip) for each, saves a resumable JSON file. The first
+  genuinely independent, footage-specific ground truth this project has
+  ever had -- everything before this was either SoccerNet's own labels
+  (doesn't reflect this project's real-footage domain gap, see finding
+  above) or FIFA pitch-dimension ground truth (validates position
+  accuracy only via a homography fit, conflating multiple error sources).
+- `scripts/measure_ground_truth_accuracy.py` -- compares
+  `TrainedPitchCalibrator`'s real predictions against saved human
+  annotations, direct pixel distance per keypoint, no homography fit or
+  FIFA-dimension assumption involved. Validated end-to-end (not just
+  written) in the ML machine's `agon:train` Docker image -- this dev
+  machine can't run `onnxruntime` locally (an Intel Mac wheel-
+  availability gap, the same class of problem already documented for
+  `torch`) -- against a small synthetic ground-truth file, confirming
+  correct frame reading, keypoint-name matching, null/skip handling,
+  low-confidence-miss handling, and per-keypoint/aggregate reporting.
+  `annotate_ground_truth.py` itself needs a human clicking on a real
+  display and hasn't been run for real data yet -- that's the concrete
+  next step.

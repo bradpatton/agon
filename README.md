@@ -273,7 +273,18 @@ imgsz=640, dynamic=False)`.
   calibration" above.** Real ground-truth validation found a median
   16.7m position error for `calibration_mode: "trained"` on real
   footage, despite 92.5% coverage. Not currently accurate enough to
-  trust for absolute position.
+  trust for absolute position. **Root cause of one contributing factor
+  (six-yard-box keypoint confusion) isolated**: confirmed a genuine model
+  generalization gap, not a training-data bug — the raw SoccerNet
+  training labels correctly distinguish the six-yard box from the
+  penalty box; the trained model just fails to preserve that distinction
+  on this project's real target broadcast footage. `scripts/
+  annotate_ground_truth.py` (interactive click tool, run locally) +
+  `scripts/measure_ground_truth_accuracy.py` (direct pixel-error
+  comparison, no homography/FIFA-dimension assumption) give this project
+  its first footage-specific, human-verified ground truth — built and
+  validated end-to-end, but not yet run against real annotations (needs
+  a human to actually click through some frames).
 - **Ball height (Z) — attempted, math validated, real-footage accuracy not
   trustworthy yet.** `agon.geometry.camera_pose.pixel_to_ray` +
   `agon.analytics.ball_height.estimate_ball_position_3d` (classical
