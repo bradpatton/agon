@@ -19,7 +19,7 @@ flowchart LR
     V[Match video] --> D[Detector<br/>ONNX default / Ultralytics]
     D --> T[Tracker<br/>ByteTrack default / BoT-SORT]
     T --> CM[Camera movement<br/>compensation]
-    CM --> PC[Pitch calibration<br/>static default / dynamic]
+    CM --> PC[Pitch calibration<br/>static default / dynamic / trained]
     PC --> SD[Speed / distance]
     SD --> TC[Team classification<br/>pixel default / embedding]
     TC --> BP[Ball possession]
@@ -147,6 +147,41 @@ speed/distance. It returns `null` positions for frames where it can't find
 the circle (most of a real match), same as the static calibrator does
 outside its polygon.
 
+`calibration_mode: trained` (`TrainedPitchCalibrator`) uses a real trained
+pose-estimation model (38 canonical pitch keypoints — line/box/goal-post
+endpoints; `scripts/train_pitch_calibration.py`, pose mAP50 0.842 on
+held-out data) and solves a genuine projective homography (`cv2.findHomography`
+with RANSAC) from however many of those 38 points a frame actually shows,
+not just the center circle. Requires `pitch_calibration_model_path`. Real,
+measured tradeoff, not a strict upgrade over `dynamic`: on a typical wide
+match-broadcast sample it covered 92.5% of frames (vs. 13.7% for `dynamic`
+on the same window) and — because it's a real homography, not a similarity
+transform — 100% of those resolved frames also produced a full camera pose
+(pan/tilt/roll/focal length, see `agon.geometry.camera_pose` below) with
+smooth, physically-plausible values frame to frame. But on a tight
+center-circle-only shot with few other line features visible, its coverage
+was *lower* than `dynamic`'s (13.3% vs. 62.8%) — the two calibrators'
+strengths are framing-dependent, see
+`scripts/validate_trained_pitch_calibrator.py`. Not yet wired into
+`hybrid`'s fallback chain (though `HybridPitchCalibrator` nests without new
+code for anyone who wants a 3-way chain today).
+
+`agon.geometry.camera_pose` (`camera_pose_from_homography`): given a real
+projective homography, recovers full camera pose — pan/tilt/roll/3D
+position/focal length, not just a flat pixel↔pitch mapping. A cited port of
+SoccerNet's own `sn-calibration` baseline (itself implementing a
+single-view self-calibration algorithm from Hartley & Zisserman's
+*Multiple View Geometry*). Validated synthetically to sub-millipixel
+reprojection accuracy, and against real footage via `TrainedPitchCalibrator`
+above (925/925 resolved frames decomposed successfully on one real sample).
+Only usable against `calibration_mode: trained`'s output today —
+`PitchKeypointCalibrator`'s similarity-transform homography structurally
+lacks the perspective information this needs (confirmed empirically, not
+assumed — see that module's own docstring), and `ViewTransformer`'s static
+homography is real but typically uncalibrated in practice. Not yet wired
+into the export schema or pipeline — currently a library capability, not a
+pipeline stage.
+
 ### Team classification
 
 `team_classifier: pixel` (default, `TeamAssigner`) clusters raw jersey-crop
@@ -181,30 +216,16 @@ imgsz=640, dynamic=False)`.
   `class` field and per-object structure are designed to extend to this
   later without a breaking change, but nothing is implemented yet. SoccerNet
   Action Spotting is the reference benchmark to build toward.
-- **Learned pitch calibration — the model is trained, the inference
-  wiring isn't built yet.** A pose-estimation keypoint model (38 canonical
-  pitch points — line/box/goal-post endpoints, see
-  `agon.geometry.pitch_keypoints`) trained for 30 epochs on 82,945 frames
-  combined from SN-GSR-2025 and the legacy Calibration dataset: pose
-  mAP50 **0.842**, mAP50-95 **0.379** on the held-out validation set —
-  a real result, not a smoke test. Checkpoint and ONNX export exist
-  (`scripts/train_pitch_calibration.py`), but `TrainedPitchCalibrator`
-  (decode the model's keypoints → `cv2.findHomography` → satisfy the
-  `PitchCalibrator` protocol) isn't built yet, so nothing in the pipeline
-  uses this checkpoint today. Once it lands, it should also be the first
-  calibrator that produces a real projective homography (not just a
-  pixel↔pitch mapping) — see `agon.geometry.camera_pose` below, already
-  built and validated but currently unable to run against either existing
-  calibrator's output for the reasons documented there.
-- **Full 3D camera pose from a pitch homography** (`agon.geometry.camera_pose`):
-  given a real projective homography, recovers pan/tilt/roll/position/focal
-  length, not just a flat pixel↔pitch mapping — validated synthetically to
-  sub-millipixel accuracy. Not yet usable against either shipped calibrator:
-  `ViewTransformer`'s static homography is real but known-uncalibrated, and
-  `PitchKeypointCalibrator`'s similarity-transform output structurally
-  lacks the perspective information this needs (confirmed, not assumed —
-  see the module's own docstring). Waiting on `TrainedPitchCalibrator`
-  above to have a real projective homography to decompose.
+- **Trained pitch calibration ships as a library capability, not yet a
+  first-class pipeline/export feature.** `calibration_mode: trained` and
+  `agon.geometry.camera_pose` are both real, built, and validated against
+  real footage (see the "Pitch calibration" section above for the actual
+  numbers) — but the export schema has no field for camera pose yet, and
+  `trained` isn't the default or wired into `hybrid`'s fallback chain.
+  Natural next steps: add camera-pose fields to `ObjectRecord`/`FrameRecord`
+  for anyone who wants them in the export, and consider a 3-way hybrid
+  chain (trained → dynamic → static) as the new recommended default given
+  `trained`'s much higher coverage on typical (non-tight-shot) footage.
 - **Jersey number recognition now uses OCR (EasyOCR), not a trained
   classifier — the classifier is kept but discouraged.** The original
   approach (`agon.jersey.OnnxJerseyClassifier`, a classifier trained on
@@ -288,7 +309,7 @@ one for new footage).
 
 ```bash
 uv sync --extra dev
-pytest                              # 151 tests, pure logic + synthetic inputs, no video/model needed
+pytest                              # 169 tests, pure logic + synthetic inputs, no video/model needed
 ruff check src/ tests/ && ruff format --check src/ tests/
 mypy src/agon
 pre-commit install                  # run the above automatically on commit

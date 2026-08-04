@@ -87,7 +87,7 @@ class PipelineConfig(BaseModel):
     team_kmeans_random_state: int = 0
     device: str | None = None
     """Inference device: 'cuda', 'mps', 'cpu', or None to auto-detect."""
-    calibration_mode: Literal["static", "dynamic", "hybrid"] = "static"
+    calibration_mode: Literal["static", "dynamic", "hybrid", "trained"] = "static"
     """'static' = ViewTransformer (one homography from CalibrationConfig).
     'dynamic' = PitchKeypointCalibrator (per-frame center-circle detection,
     experimental classical-CV first cut -- see that class's docstring).
@@ -96,7 +96,29 @@ class PipelineConfig(BaseModel):
     clip vs. 34.4%/56.9% for static/dynamic alone, since the two mostly
     fail on different frames rather than the same ones. Recommended over
     either alone when a calibration file is available (still needs one,
-    for the fallback)."""
+    for the fallback). 'trained' = TrainedPitchCalibrator (a real keypoint-
+    detection model, requires pitch_calibration_model_path) -- solves a
+    genuine projective homography from however many of 38 canonical pitch
+    features are visible, not just the center circle; see that class's
+    docstring. On a typical wide match-broadcast sample (1000 real frames),
+    measured at 92.5% coverage vs. 13.7% for 'dynamic' on the same window,
+    and -- the specific thing Phase 14's camera-pose decomposition was
+    blocked on -- 100% of those resolved frames (925/925) also produced a
+    full, temporally-stable camera pose (pan/tilt/roll/focal length) via
+    agon.geometry.camera_pose, something 'dynamic's similarity-transform
+    output structurally cannot do at all. Real, measured tradeoff, not a
+    strict universal upgrade, though: on a tight center-circle-only shot
+    with few other line features visible, coverage was *lower* than
+    'dynamic' (13.3% vs. 62.8%) -- the two calibrators' strengths are
+    framing-dependent (see scripts/validate_trained_pitch_calibrator.py).
+    Not yet wired into 'hybrid's fallback chain, though HybridPitchCalibrator
+    nests without new code (HybridPitchCalibrator(primary=HybridPitchCalibrator(
+    primary=trained, fallback=dynamic), fallback=static)) for anyone who
+    wants a 3-way chain today."""
+    pitch_calibration_model_path: str | None = None
+    """Path to a pose-estimation ONNX checkpoint exported by
+    scripts/train_pitch_calibration.py (see TrainedPitchCalibrator). Only
+    used when calibration_mode='trained'; required in that case."""
     team_classifier: Literal["pixel", "embedding"] = "pixel"
     """'pixel' = TeamAssigner (raw jersey-crop pixel KMeans).
     'embedding' = EmbeddingTeamClassifier (small-CNN-embedding KMeans;

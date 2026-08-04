@@ -423,6 +423,39 @@ validating end-to-end against real footage:
   the trained-keypoint-model calibrator's own real projective fit, once
   that training run completes.
 
+- **`TrainedPitchCalibrator`**: the trained pitch-calibration keypoint
+  model (Phase 13) is now wired into the pipeline
+  (`calibration_mode: "trained"`, requires `pitch_calibration_model_path`).
+  Decodes the ONNX pose model's raw output (verified against real output
+  before writing any decode logic, not assumed -- same
+  absolute-network-input-pixel-space convention for both bbox and
+  keypoint coordinates as `OnnxDetector`'s existing detection decode) into
+  the 38 canonical pitch keypoints, then solves a real projective
+  homography via `cv2.findHomography` with RANSAC from however many
+  confident keypoints a frame shows -- unlike `PitchKeypointCalibrator`'s
+  similarity transform, this is a genuine perspective-correcting
+  homography. Visually validated on two real frames before writing the
+  class: a tight center-circle shot placed "Middle line" point 0 exactly
+  on the halfway-line/touchline intersection; a wider goal-mouth shot
+  (0.95 model confidence) placed 13 keypoints precisely on real box/goal/
+  touchline markings. A close-up shot with no pitch visible correctly
+  scored 0.04 confidence.
+
+  **Real, measured coverage tradeoff** (`scripts/validate_trained_pitch_calibrator.py`),
+  not a strict upgrade over `dynamic`: on a typical wide match-broadcast
+  sample (1000 real frames), 92.5% coverage vs. 13.7% for `dynamic` on
+  the same window, and -- closing the loop Phase 14 was left blocked on
+  -- 100% of those resolved frames (925/925) also produced a full,
+  temporally-stable camera pose via `agon.geometry.camera_pose`
+  (pan/tilt/roll varied by well under 1 degree, focal length by single
+  digits of pixels, across consecutive frames). But on the tight
+  center-circle-only `benchmark_clip.mp4`, coverage was *lower* than
+  `dynamic`'s (13.3% vs. 62.8%) -- the two calibrators' strengths are
+  framing-dependent, confirmed empirically rather than assumed either
+  way. Not yet the default, and not yet wired into `hybrid`'s fallback
+  chain (though `HybridPitchCalibrator` nests without new code for a
+  3-way chain today).
+
 ### Fixed
 - `OnnxDetector` always supported a configurable input resolution, but
   nothing above it in the pipeline ever passed one through — inference

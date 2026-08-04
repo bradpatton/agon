@@ -327,18 +327,41 @@ agon --input <video> --model models/best.onnx \
   --calibration <calibration.json> --config your-config.yaml
 ```
 
+**The pitch-calibration checkpoint deploys the same way, via
+`calibration_mode: trained`** (no `detection_imgsz`-style resolution
+setting needed -- `TrainedPitchCalibrator` always runs at the 960x960 it
+was exported at):
+
+```yaml
+# your-config.yaml
+pipeline:
+  calibration_mode: "trained"
+  pitch_calibration_model_path: models/runs/train/pitch_calibration/weights/best.onnx
+```
+
+Real, measured tradeoff (see `scripts/validate_trained_pitch_calibrator.py`
+and the README's "Pitch calibration" section): much higher coverage than
+`calibration_mode: dynamic` on typical wide match footage (92.5% vs. 13.7%
+on one real sample), but *lower* on a tight center-circle-only shot (13.3%
+vs. 62.8%) -- pick based on the footage you actually have, not blindly.
+
 ## Known gaps (honest, not hidden)
 
-- **Pitch calibration model is trained (real result: pose mAP50 0.842),
-  but nothing in the pipeline uses it yet.** See Step 4's pitch-calibration
-  subsection for the real run. `TrainedPitchCalibrator` (decode the
-  checkpoint's keypoints → homography → satisfy `PitchCalibrator`) isn't
-  built — that's the remaining gap, not the training itself. In the
-  meantime, `PipelineConfig.calibration_mode = "hybrid"` (a new
-  `HybridPitchCalibrator` combining the existing static/dynamic
-  calibrators) measurably improves pitch-position coverage (77.0% vs.
-  34.4%/56.9% for static/dynamic alone) without needing this model at
-  all — see the project plan's Phase 12.
+- **Pitch calibration model is trained and wired in
+  (`calibration_mode: "trained"`), but isn't the default yet.** Real
+  result: pose mAP50 0.842 on held-out data, and 92.5% pitch-position
+  coverage on typical wide match footage (vs. 13.7% for `dynamic` on the
+  same window) -- but *lower* coverage than `dynamic` on tight
+  center-circle-only shots (13.3% vs. 62.8%), so it's a real, measured
+  tradeoff, not a strict upgrade. See Step 5's deploy subsection and the
+  README's "Pitch calibration" section for the full numbers. Not yet
+  wired into `hybrid`'s fallback chain, and the export schema has no
+  camera-pose field yet even though `agon.geometry.camera_pose` can now
+  produce one for every `trained`-resolved frame (100% success rate on
+  the same sample). `PipelineConfig.calibration_mode = "hybrid"` (dynamic
+  + static, no model needed) remains the recommended default when you
+  don't have or don't want to manage the pitch-calibration checkpoint --
+  see the project plan's Phase 12.
 - **The trained jersey classifier (`OnnxJerseyClassifier`) is not
   recommended — use `PipelineConfig.jersey_backend = "ocr"` instead.**
   Root cause found: SN-GSR-2025's `attributes.jersey` label is assigned

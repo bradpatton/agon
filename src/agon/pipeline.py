@@ -50,6 +50,7 @@ from agon.export.writer import (
 from agon.geometry.bbox import Point
 from agon.geometry.hybrid_pitch_calibrator import HybridPitchCalibrator
 from agon.geometry.pitch_keypoint_calibrator import PitchKeypointCalibrator
+from agon.geometry.trained_pitch_calibrator import TrainedPitchCalibrator
 from agon.geometry.view_transformer import (
     ViewTransformer,
     add_transformed_position_to_tracks,
@@ -145,7 +146,10 @@ def _first_frame_with_enough_players(player_tracks: list[dict], min_players: int
 
 
 def _make_pitch_calibrator(
-    calibration: CalibrationConfig, mode: str, min_grass_fraction: float = 0.35
+    calibration: CalibrationConfig,
+    mode: str,
+    min_grass_fraction: float = 0.35,
+    pitch_calibration_model_path: str | None = None,
 ) -> PitchCalibrator:
     """Picks a PitchCalibrator per ``PipelineConfig.calibration_mode`` --
     constructs it, but doesn't calibrate() it yet (the caller decides
@@ -157,7 +161,12 @@ def _make_pitch_calibrator(
     output over the static calibration. 'hybrid' (see
     HybridPitchCalibrator) tries dynamic first and falls back to static
     per point -- measured to cover meaningfully more real detections than
-    either alone, since the two mostly fail on different frames.
+    either alone, since the two mostly fail on different frames. 'trained'
+    (see TrainedPitchCalibrator) uses a real trained keypoint-detection
+    model -- requires ``pitch_calibration_model_path``; real, measured
+    tradeoff against 'dynamic', not a strict upgrade (see that class's
+    docstring and ``scripts/validate_trained_pitch_calibrator.py``), not
+    yet wired into 'hybrid's fallback chain.
 
     ``min_grass_fraction`` is forwarded to ``PitchKeypointCalibrator`` (see
     its docstring) -- reuses ``PipelineConfig.min_grass_fraction``, the
@@ -165,6 +174,12 @@ def _make_pitch_calibrator(
     independently-tuned value for the same "is this actually pitch
     footage" question.
     """
+    if mode == "trained":
+        if pitch_calibration_model_path is None:
+            raise ValueError(
+                "calibration_mode='trained' requires pitch_calibration_model_path to be set."
+            )
+        return TrainedPitchCalibrator(pitch_calibration_model_path)
     if mode == "hybrid":
         return HybridPitchCalibrator(
             primary=PitchKeypointCalibrator(
@@ -181,11 +196,17 @@ def _make_pitch_calibrator(
 
 
 def _build_pitch_calibrator(
-    calibration: CalibrationConfig, mode: str, video_frames: list, min_grass_fraction: float = 0.35
+    calibration: CalibrationConfig,
+    mode: str,
+    video_frames: list,
+    min_grass_fraction: float = 0.35,
+    pitch_calibration_model_path: str | None = None,
 ) -> PitchCalibrator:
     """Whole-clip convenience wrapper around _make_pitch_calibrator, for the
     non-streaming pipeline."""
-    calibrator = _make_pitch_calibrator(calibration, mode, min_grass_fraction)
+    calibrator = _make_pitch_calibrator(
+        calibration, mode, min_grass_fraction, pitch_calibration_model_path
+    )
     calibrator.calibrate(video_frames)
     return calibrator
 
@@ -416,7 +437,11 @@ def run_pipeline(
     camera_movement_estimator.add_adjust_positions_to_tracks(tracks, camera_movement_per_frame)
 
     pitch_calibrator = _build_pitch_calibrator(
-        calibration, config.calibration_mode, video_frames, config.min_grass_fraction
+        calibration,
+        config.calibration_mode,
+        video_frames,
+        config.min_grass_fraction,
+        config.pitch_calibration_model_path,
     )
     add_transformed_position_to_tracks(tracks, pitch_calibrator)
 
@@ -604,7 +629,10 @@ def run_pipeline_streaming(
         tracker=tracker,
     )
     pitch_calibrator = _make_pitch_calibrator(
-        calibration, config.calibration_mode, config.min_grass_fraction
+        calibration,
+        config.calibration_mode,
+        config.min_grass_fraction,
+        config.pitch_calibration_model_path,
     )
     team_classifier = _build_team_classifier(
         config.team_classifier, config.team_embedding_model_path, config.team_kmeans_random_state
