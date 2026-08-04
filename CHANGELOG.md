@@ -620,3 +620,61 @@ validating end-to-end against real footage:
   (`TrainedPitchCalibrator`) isn't built yet -- deliberately deferred
   until the real trained/exported model exists, since its ONNX
   output-decoding needs to be verified against real output, not assumed.
+
+- **Full 3D camera pose recovery from a pitch homography** (Phase 14):
+  `agon.geometry.camera_pose`, a cited port of SoccerNet's own official
+  camera-calibration baseline (`github.com/SoccerNet/sn-calibration`,
+  itself implementing Hartley & Zisserman's *Multiple View Geometry*
+  Algorithm 8.2 / Example 8.1) -- given a single pitch-plane homography,
+  recovers full camera pose (pan, tilt, roll, 3D position, focal length),
+  not just a flat pixel<->pitch-meters mapping. Motivated by the user
+  asking whether the goal's off-ground-plane geometry could help resolve
+  camera angle; reading the SoccerNet-v3 data descriptor paper
+  (`docs/Soccer Spatial Vision.pdf`) confirmed the idea and led to this
+  more elegant approach, which needs no off-plane goal points at all for
+  the core recovery (goal-point PnP refinement remains a valid later
+  addition, not required for this first step).
+
+  A real subtlety found and fixed during the port, not glossed over:
+  `sn-calibration`'s own `rotation_matrix_to_pan_tilt_roll` internally
+  transposes its input, and its one call site going the other direction
+  applies a matching transpose inline rather than fixing the base
+  function -- a footgun in the reference implementation itself, confirmed
+  by round-tripping a synthetic pose. Fixed by adding
+  `pan_tilt_roll_to_rotation` as the correct, non-footgun public
+  constructor, with a regression test independent of the homography
+  decomposition entirely.
+
+  Validated synthetically first (`tests/test_camera_pose.py`, 8 tests):
+  three independently-constructed cameras, each projecting real canonical
+  pitch keypoints through a known pose, homography-fit, decomposed, and
+  checked to reproject every keypoint within 0.5px of the true camera's
+  own projection (sub-millipixel in practice). `homography_from_point_
+  transform` bridges calibrators (like `PitchKeypointCalibrator`) that
+  only expose point-transform functions rather than a stored matrix,
+  validated exact against that calibrator's own `inverse_transform_point`.
+
+  **Real-footage validation (`scripts/decompose_pitch_camera_pose.py`)
+  surfaced a genuine, structural limitation, reported honestly rather
+  than glossed over**: decomposition succeeded on 0 of 113 frames
+  `PitchKeypointCalibrator` resolved on `benchmark_clip.mp4`. Root cause,
+  confirmed by inspecting the derived homography directly: a similarity
+  transform's implied homography has two equal-magnitude, exactly
+  orthogonal columns by construction -- precisely the degenerate case
+  this self-calibration algorithm can't solve, since it needs the
+  differential foreshortening between axes that only comes from genuine
+  camera perspective (the same "no perspective correction" limitation
+  `PitchKeypointCalibrator`'s own docstring already flags, now shown to
+  also block this downstream use). Confirmed this is about missing
+  perspective information specifically, not real footage in general: the
+  same decomposition succeeded numerically when fed a genuine 4-point
+  projective homography instead (`ViewTransformer`'s fit from real
+  hand-picked pixel corners) -- though the recovered pose wasn't
+  physically plausible, consistent with that calibration file's own
+  "UNCALIBRATED / APPROXIMATE" caveat (already flagged in Phase 12), an
+  expected result of known-bad input rather than a new finding. Real,
+  trustworthy validation needs either Phase 12 item 2 (a real
+  multi-feature homography for the classical calibrator), a properly
+  annotated calibration file (still missing, per Phase 12 item 4), or
+  the trained-keypoint-model calibrator's own real projective fit, once
+  that training run completes.
