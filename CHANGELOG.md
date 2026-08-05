@@ -887,3 +887,48 @@ validating end-to-end against real footage:
   wide-shot clip where the model's measured coverage is 92.5%, to
   isolate whether this result is tight-shot-specific -- was proposed and
   the user chose to pause there for now.
+- **A real external pretrained model was found that solves the
+  six-yard-box/penalty-box confusion on ordinary broadcast framing.**
+  User asked whether another model could help label frames. Verified
+  (not assumed) that `roboflow/sports` publishes `football-pitch-
+  detection.pt`, a YOLOv8-pose checkpoint (32 keypoints, confirmed via
+  `model.task`/`model.names`/`kpt_shape`) trained on Roboflow's own
+  dataset -- a genuinely different distribution than SoccerNet's --
+  downloadable directly via `gdown` from a public Google Drive link, no
+  API key (confirmed by reading `roboflow/sports`' own `setup.sh`). Ran
+  it against 4 real target-footage frames in the ML machine's Docker
+  image and rendered its keypoints directly onto each frame (not just
+  its confidence scores). Result: on 2 of 4 real broadcast frames, it
+  correctly separates the six-yard box from the penalty box, landing
+  precisely on the real lines -- exactly the distinction this project's
+  own trained model confuses. Failed differently on an extreme
+  goal-mouth-scramble crop (points placed in the crowd) and a broadcast
+  bumper/logo graphic (hallucinated keypoints -- the same known
+  false-positive failure already documented for this project's own
+  classical calibrator on this kind of frame, not a new problem).
+
+### Added
+- `scripts/annotate_ground_truth.py` gained `--model` (optional):
+  pre-fills each of the 38 canonical keypoints with
+  `TrainedPitchCalibrator`'s own prediction (a yellow marker), press `a`
+  to accept instead of clicking -- faster when right, free when wrong.
+  Every accepted point is still a real human confirmation, not a
+  model-trusted value, so it doesn't compromise
+  `measure_ground_truth_accuracy.py`'s independence. Lazily imports
+  `onnxruntime` only when `--model` is passed.
+- `scripts/annotate_ground_truth.py` gained `--roboflow-model`
+  (optional): draws the Roboflow checkpoint's confident keypoints as a
+  read-only cyan reference overlay (`R01`-`R32`), visible regardless of
+  which canonical keypoint is active. Deliberately has no accept
+  shortcut -- its 32 keypoints aren't verified to map onto specific
+  slots in our own 38-keypoint naming scheme (which side is "left",
+  which corner is which), so auto-accepting one under a specific
+  canonical name risked silently mislabeling ground truth. Visual aid
+  only. Lazily imports `ultralytics`/`torch`.
+  Both flags validated end-to-end locally via a throwaway venv pinned to
+  `onnxruntime==1.23.2` and `torch==2.2.2` (the newest releases with
+  Intel macOS wheels -- the same wheel-availability gap already
+  documented for the main project env) -- hit and fixed a real `numpy`
+  2.x/1.x ABI conflict between that `torch` version and modern
+  `opencv-python` along the way, resolved by pinning
+  `opencv-python<4.10`/`numpy<2` together in the same venv.

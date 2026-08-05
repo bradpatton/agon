@@ -292,6 +292,21 @@ imgsz=640, dynamic=False)`.
   though from only 2 frames in the model's worst-case framing, so not
   yet a general conclusion. Next: annotate a wide-shot clip (92.5%
   measured coverage) to see if this holds outside that worst case.
+  **The annotation tool now has two assist modes to make that faster**:
+  `--model` pre-fills each keypoint with `TrainedPitchCalibrator`'s own
+  suggestion (press `a` to accept — still a real human confirmation, not
+  a trusted value) and `--roboflow-model` overlays a completely
+  different, independently-trained pitch-keypoint model
+  (`roboflow/sports`' `football-pitch-detection.pt`, a YOLOv8-pose
+  checkpoint on a different dataset than SoccerNet's) as a read-only
+  visual reference. Checked directly on real target footage: that
+  external model correctly separates the six-yard box from the penalty
+  box on real broadcast frames — exactly the distinction our own model
+  gets wrong — though it fails differently on an extreme goal-mouth crop
+  and hallucinates on broadcast bumper graphics (a known limitation
+  shared with this project's own classical calibrator). Not yet used as
+  a pseudo-label source or calibrator replacement — deliberately scoped
+  down to annotation assistance only, for now.
 - **Ball height (Z) — attempted, math validated, real-footage accuracy not
   trustworthy yet.** `agon.geometry.camera_pose.pixel_to_ray` +
   `agon.analytics.ball_height.estimate_ball_position_3d` (classical
