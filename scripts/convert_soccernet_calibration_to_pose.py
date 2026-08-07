@@ -27,6 +27,49 @@ skipped entirely (not written with an all-zero label) -- not enough
 signal to be a useful training example, and Ultralytics pose training
 doesn't need every frame to have full coverage regardless.
 
+**Point-order correction (project plan Phase 18)**: SoccerNet's raw
+per-line point order is NOT globally consistent -- empirically checked
+across 57 real SN-GSR-2025 train sequences and 400 legacy Calibration
+images, roughly 43-44% of frames have a given 2-endpoint line's raw
+points in the *reverse* of the order this project's canonical mapping
+assumes, and it varies **per sequence**, not randomly per frame (e.g.
+SNGS-060: 30/30 frames "expected" order; SNGS-061: 0/61, entirely
+reversed). A real ground-truth accuracy check found this exact signature
+in the trained model: several keypoint slots' predictions consistently
+landed within a few px of their own *sibling* endpoint's true position,
+not a real localization failure -- the model had learned a confused
+mapping because a large fraction of its training labels had endpoints 0
+and 1 silently swapped. Two independent, differently-shaped fixes:
+
+1. **Per-frame reordering** for lines with a known coincident real-world
+   corner shared with an adjacent named line (``_NEIGHBOR_CHECKS``,
+   12 relationships covering both boxes' `main`/`top`/`bottom` and the
+   four pitch corners) -- for each such line, checks whether its raw
+   points already match the coincident corner within tolerance, and
+   reverses them if the *other* orientation matches instead. Only acts
+   when there's clear signal; a line with no checkable neighbor present
+   in that frame, or an ambiguous match, is left as-is.
+2. **Global name correction** for goal posts: unlike the box lines, the
+   `Goal * post left`/`Goal * post right` confusion turned out to be
+   *globally* consistent (191/191 checked frames, not sequence-varying)
+   -- a genuine semantic mismatch between SoccerNet's own "left"/"right"
+   convention and this project's (camera-facing) one, not a per-frame
+   data problem. Fixed by swapping which raw line name feeds which
+   canonical name, applied uniformly. Deliberately fixed only in this
+   conversion script, not in ``agon.geometry.pitch_keypoints``' shared
+   definitions -- those stay in this project's own (camera-facing,
+   intuitive) convention, which is what the human-annotated ground truth
+   and every inference-time consumer already use; only the raw-data
+   ingestion needed correcting.
+
+**Known, deliberately unfixed gap**: ``Middle line`` shows the same
+per-sequence swap pattern as the box lines (checked: 85 expected vs 68
+swapped across 9 sequences) but has no coincident-corner neighbor to
+check against, and does not reliably track the same sequence's box-line
+orientation (e.g. SNGS-066 showed box lines swapped while `Middle line`
+was not) -- so no automatic correction is applied for it. Flagged, not
+guessed at.
+
 Usage:
     # SN-GSR-2025 (one call per extracted split):
     python scripts/convert_soccernet_calibration_to_pose.py gsr \\
@@ -41,6 +84,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import sys
 from pathlib import Path
@@ -64,23 +108,110 @@ margin) is a degenerate/unusual input for a detector to learn from, and
 real pitch extent typically continues a bit beyond whatever keypoints
 happen to be visible."""
 
+_COINCIDENT_RAW_CHECKS: list[tuple[str, int, str, int]] = [
+    ("Big rect. left main", 0, "Big rect. left top", -1),
+    ("Big rect. left main", -1, "Big rect. left bottom", 0),
+    ("Big rect. right main", 0, "Big rect. right top", -1),
+    ("Big rect. right main", -1, "Big rect. right bottom", 0),
+    ("Small rect. left main", 0, "Small rect. left top", -1),
+    ("Small rect. left main", -1, "Small rect. left bottom", 0),
+    ("Small rect. right main", 0, "Small rect. right top", -1),
+    ("Small rect. right main", -1, "Small rect. right bottom", 0),
+    ("Side line top", 0, "Side line left", -1),
+    ("Side line bottom", 0, "Side line left", 0),
+    ("Side line top", -1, "Side line right", -1),
+    ("Side line bottom", -1, "Side line right", 0),
+]
+"""(line_a, raw_idx_a, line_b, raw_idx_b) pairs whose raw annotation points
+should coincide at the same real-world corner (per ``LINE_ENDPOINTS_M``) --
+used to detect and correct SoccerNet's per-sequence raw point-order
+inconsistency. See this module's docstring, "Point-order correction"."""
+
+_NEIGHBOR_CHECKS: dict[str, list[tuple[int, str, int]]] = {}
+for _line_a, _idx_a, _line_b, _idx_b in _COINCIDENT_RAW_CHECKS:
+    _NEIGHBOR_CHECKS.setdefault(_line_a, []).append((_idx_a, _line_b, _idx_b))
+    _NEIGHBOR_CHECKS.setdefault(_line_b, []).append((_idx_b, _line_a, _idx_a))
+
+GOAL_POST_NAME_CORRECTION: dict[str, str] = {
+    "Goal left post left": "Goal left post right",
+    "Goal left post right": "Goal left post left",
+    "Goal right post left": "Goal right post right",
+    "Goal right post right": "Goal right post left",
+}
+"""SoccerNet's raw ``Goal * post left``/``Goal * post right`` line names are
+globally swapped relative to this project's (camera-facing) convention --
+confirmed 191/191 checked frames agree, not sequence-varying like the
+other point-order issue, i.e. a genuine semantic mismatch rather than a
+per-frame data problem. Maps the raw line name to the canonical name it
+actually corresponds to. Deliberately not fixed in
+``agon.geometry.pitch_keypoints`` itself -- see module docstring."""
+
+
+def _reorder_if_swapped(
+    name: str, raw_pts: list[dict], lines: dict, width: int, height: int, tol_px: float = 8.0
+) -> list[dict]:
+    """Returns ``raw_pts`` in canonical (endpoint 0 first) order, reversing
+    it if a coincident-corner neighbor line present in this same frame
+    clearly matches the reversed orientation instead. Conservative by
+    design: only acts when at least one neighbor check clearly supports
+    reversing and none support keeping it as-is; otherwise returns
+    ``raw_pts`` unchanged (including when no checkable neighbor is
+    present in this frame at all)."""
+    checks = _NEIGHBOR_CHECKS.get(name)
+    if not checks or len(raw_pts) < 2:
+        return raw_pts
+
+    def px(pt: dict) -> tuple[float, float]:
+        return pt["x"] * width, pt["y"] * height
+
+    def dist(pt_a: dict, pt_b: dict) -> float:
+        (ax, ay), (bx, by) = px(pt_a), px(pt_b)
+        return math.hypot(ax - bx, ay - by)
+
+    as_is_hits = 0
+    reversed_hits = 0
+    for own_idx, neighbor_name, neighbor_idx in checks:
+        neighbor_pts = lines.get(neighbor_name)
+        if neighbor_pts is None or len(neighbor_pts) < 2:
+            continue
+        neighbor_pt = neighbor_pts[neighbor_idx]
+        other_idx = -1 if own_idx == 0 else 0
+        if dist(raw_pts[own_idx], neighbor_pt) <= tol_px:
+            as_is_hits += 1
+        elif dist(raw_pts[other_idx], neighbor_pt) <= tol_px:
+            reversed_hits += 1
+
+    if reversed_hits > 0 and as_is_hits == 0:
+        return list(reversed(raw_pts))
+    return raw_pts
+
 
 def _visible_keypoints_px(
     lines: dict, width: int, height: int
 ) -> dict[tuple[str, int], tuple[float, float]]:
     """Maps each visible, non-boundary-clipped canonical keypoint to its
-    pixel position for one frame."""
+    pixel position for one frame. Applies the point-order and goal-post
+    name corrections described in this module's docstring before
+    extracting endpoint positions."""
     visible = {}
-    for name, pts in lines.items():
-        if name in EXCLUDED_LINES or name not in LINE_ENDPOINTS_M:
+    for raw_name, raw_pts in lines.items():
+        if raw_name in EXCLUDED_LINES:
+            continue
+        name = GOAL_POST_NAME_CORRECTION.get(raw_name, raw_name)
+        if name not in LINE_ENDPOINTS_M:
             continue
         real_endpoints = LINE_ENDPOINTS_M[name]
-        raw_indices = (GOAL_POST_GROUND_POINT_INDEX,) if len(real_endpoints) == 1 else (0, -1)
+        pts = raw_pts
+        if len(real_endpoints) == 1:
+            raw_indices = (GOAL_POST_GROUND_POINT_INDEX,)
+        else:
+            pts = _reorder_if_swapped(name, raw_pts, lines, width, height)
+            raw_indices = (0, -1)
         for real_idx, raw_idx in enumerate(raw_indices):
-            px, py = pts[raw_idx]["x"] * width, pts[raw_idx]["y"] * height
-            if is_frame_boundary_clipped(px, py, width, height):
+            px_val, py_val = pts[raw_idx]["x"] * width, pts[raw_idx]["y"] * height
+            if is_frame_boundary_clipped(px_val, py_val, width, height):
                 continue
-            visible[(name, real_idx)] = (px, py)
+            visible[(name, real_idx)] = (px_val, py_val)
     return visible
 
 
