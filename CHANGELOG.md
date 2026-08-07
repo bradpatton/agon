@@ -995,3 +995,30 @@ validating end-to-end against real footage:
   like uneven per-keypoint-slot calibration than one clean geometric
   blind spot. Some counts still small (n=1-3) -- not yet fully solid,
   next step is more samples per weak keypoint specifically.
+- **Third batch, targeted at the specific weak/low-sample keypoints --
+  the pattern stabilizes across three independent rounds.** Scanned for
+  candidates specifically showing the halfway line (previously n=1),
+  right six-yard `top`, and left `Big rect. main`. Found and visually
+  discarded 4 more false positives along the way (a close-up player
+  reaction, a blurred occlusion shot, the same pre-match lineup graphic,
+  a warmup close-up) -- same discipline as the second batch. Final batch
+  included a genuine wide kickoff shot with the full center circle and
+  halfway line reaching the touchline -- the first unambiguous
+  halfway-line-endpoint frame this project has had. 18 frames, 191 real
+  points total.
+
+  **Result: three rounds in a row now agree, the pattern has
+  stabilized** -- median 8.2px, mean 151.7px (falling steadily:
+  189.8px -> 156.9px -> 151.7px as sample size grows), p90 473.8px. The
+  bad cluster is now backed by real sample sizes, not n=1-2 flukes:
+  `Big rect. left main|1` (n=8, 905px, worst offender, rock-solid across
+  all three rounds), `Small rect. left main` both ends (n=9, ~455-466px),
+  `Small rect. left bottom` both (n=4-9, ~213-217px), `Small rect. right
+  top` both (n=4, ~213-217px), `Goal left post` both (n=3-8,
+  ~187-202px), `Big rect. right top|1` (n=6, 267px). **New this round**:
+  `Middle line` has the same split pattern as the boxes -- `|0`
+  catastrophic (n=2, 683px), `|1` fine (n=4, 11px). Roughly 10 of the 38
+  canonical keypoint slots are consistently, catastrophically unreliable
+  while the rest are excellent -- a stable, three-round-confirmed
+  result. Priority has shifted from gathering more ground truth to
+  root-causing *why* these specific slots are broken.

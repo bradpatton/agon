@@ -339,8 +339,19 @@ imgsz=640, dynamic=False)`.
   pattern is asymmetric in a way no single geometric rule explains —
   left six-yard box has `main`+`bottom` broken and `top` perfect; right
   six-yard box has the *opposite*. Looks more like uneven per-keypoint
-  calibration than one clean blind spot. Root cause not yet investigated
-  further; several counts are still small (n=1–3).
+  calibration than one clean blind spot.
+  **A third targeted batch confirms the pattern is stable**: 18 frames,
+  191 points now — median 8.2px, mean 151.7px (falling steadily as
+  sample size grows: 189.8→156.9→151.7px across three rounds). The bad
+  cluster is backed by real sample sizes now (n=4–9, not n=1–2):
+  `Big rect. left main|1` (905px, worst offender across all three
+  rounds), `Small rect. left main`/`bottom`, `Small rect. right top`,
+  `Goal left post`, `Big rect. right top|1`. `Middle line` turns out to
+  have the same split as the boxes — one endpoint fine, the other
+  catastrophic. Roughly 10 of the 38 canonical keypoint slots are
+  consistently broken while the rest are excellent — three rounds agree.
+  Priority has shifted from gathering more ground truth to root-causing
+  *why* these specific slots fail.
 - **Ball height (Z) — attempted, math validated, real-footage accuracy not
   trustworthy yet.** `agon.geometry.camera_pose.pixel_to_ray` +
   `agon.analytics.ball_height.estimate_ball_position_3d` (classical
