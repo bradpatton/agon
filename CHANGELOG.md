@@ -932,3 +932,44 @@ validating end-to-end against real footage:
   2.x/1.x ABI conflict between that `torch` version and modern
   `opencv-python` along the way, resolved by pinning
   `opencv-python<4.10`/`numpy<2` together in the same venv.
+- `scripts/annotate_ground_truth.py` reworked around real user friction
+  with the frame-major order: default `--batch-order point` now loops
+  keypoint-type outer, frame inner -- place one real-world feature across
+  a whole batch of frames before switching to the next feature, instead
+  of re-orienting to a new feature on every single frame. One flat step
+  counter over `(keypoint_idx, frame_pos)` makes undo (`u`/ctrl-z)
+  uniform across both frame and keypoint-type boundaries. `--batch-order
+  frame` keeps the old order. All frames/suggestions/reference points are
+  precomputed up front so switching frames mid-keypoint is instant.
+- Added an unmissable, blocking transition screen at every keypoint-type
+  change (a text label alone was too easy to miss while clicking
+  quickly, leading to real mislabeling): a category-colored full-screen
+  banner (gray touchline/halfway, blue penalty box, orange six-yard box,
+  red goalpost) that requires an actual keypress to dismiss -- stray
+  clicks during it are ignored by construction. A persistent colored
+  border of the same color stays around every frame for that keypoint
+  type. Extended further per request: a to-scale mini pitch diagram
+  (`_pitch_diagram`, drawn from `agon.geometry.pitch_keypoints`' real
+  coordinates, same source of truth as the standalone pitch-diagram
+  artifact) highlights exactly where the current point sits, and the
+  full control legend is spelled out on the same screen.
+
+### Investigated
+- **First fully-completed real ground-truth batch, and the most decisive
+  accuracy result this project has produced.** User completed a real
+  6-frame batch of `match_10min_sample.mp4` (the model's best-case wide
+  framing) using the new batch-by-point workflow: 81 real human-marked
+  keypoints, 147 correctly marked not-visible. Result is a sharp,
+  bimodal split, not a uniform error: most keypoints are excellent
+  (0-2px median -- `Side line top`, `Small rect. left top`, `Big rect.
+  left top/main|0`), but a specific, non-random cluster is
+  catastrophically wrong -- `Small rect. left main` (~455-461px both
+  endpoints), `Small rect. left bottom` (~219-236px), `Big rect. left
+  main|1` (895.6px -- its own sibling endpoint `|0` is perfect), `Goal
+  left post` (~187-202px). Overall median 4.1px, mean pulled to 189.8px
+  entirely by that cluster (p90 507.9px, max 985.1px). **Sharper than
+  the earlier "six-yard box confusion" diagnosis**: the broken keypoints
+  are specifically the *depth* lines (running perpendicular to the goal
+  line, into the pitch) and goalposts -- the *lateral* lines running
+  along the goal line are fine. A materially more actionable target for
+  whatever fix comes next than the earlier, vaguer diagnosis.

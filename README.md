@@ -307,6 +307,29 @@ imgsz=640, dynamic=False)`.
   shared with this project's own classical calibrator). Not yet used as
   a pseudo-label source or calibrator replacement — deliberately scoped
   down to annotation assistance only, for now.
+  **The annotation tool's default order also changed** (`--batch-order
+  point`, old order kept as `--batch-order frame`): batches by keypoint
+  *type* across a whole set of frames before moving to the next type,
+  instead of all 38 types per frame — direct response to real annotation
+  friction, since re-finding which feature to look for on every frame
+  cost far more than staying locked onto one feature across many. An
+  unmissable, blocking transition screen (category-colored, requires a
+  real keypress) plus a to-scale mini pitch diagram showing exactly
+  where the current point sits now appears at every keypoint-type
+  change, after users reported missing silent label changes mid-batch.
+  **First fully-completed real batch, and the most decisive accuracy
+  result yet**: 6 frames of `match_10min_sample.mp4` (the model's
+  best-case wide framing), 81 real human-marked keypoints. Sharp,
+  bimodal result — most keypoints land within 0–2px (essentially
+  perfect), but a specific cluster is catastrophically wrong: `Small
+  rect. left main` (~455–461px), `Small rect. left bottom` (~219–236px),
+  `Big rect. left main|1` (895.6px — its sibling endpoint `|0` is
+  perfect), `Goal left post` (~187–202px). Overall median 4.1px, mean
+  189.8px (pulled entirely by that cluster). **Sharper diagnosis than
+  "six-yard box confusion"**: the broken keypoints are specifically the
+  *depth* lines (perpendicular to the goal line) and goalposts — lines
+  running along the goal line are fine. Root cause not yet investigated
+  further.
 - **Ball height (Z) — attempted, math validated, real-footage accuracy not
   trustworthy yet.** `agon.geometry.camera_pose.pixel_to_ray` +
   `agon.analytics.ball_height.estimate_ball_position_3d` (classical
