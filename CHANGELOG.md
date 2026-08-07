@@ -973,3 +973,25 @@ validating end-to-end against real footage:
   line, into the pitch) and goalposts -- the *lateral* lines running
   along the goal line are fine. A materially more actionable target for
   whatever fix comes next than the earlier, vaguer diagnosis.
+- **Second, more diverse batch -- and a correction to the "depth lines"
+  theory above.** The first batch was entirely left-side, no middle line
+  or right side at all. Scanned the full `match_10min_sample.mp4`
+  (30,237 frames) via the trained model's own confidence to find
+  candidates for each gap, then **visually verified every one before
+  use** -- caught 2 real false positives this way (a pre-match lineup
+  graphic, a close-up reaction shot with a broadcast overlay), both
+  confidently "detected" as pitch by the model; discarded before they
+  could corrupt ground truth. Final batch (6 more frames, verified real):
+  right side, center circle/halfway line (2 angles), one more left-side
+  frame. 12 frames total now, 138 real points. **Updated result**:
+  median 7.5px, mean 156.9px, p90 490.9px, max unchanged 985.1px.
+  **Diagnosis corrected**: re-derived the real geometry directly from
+  `LINE_ENDPOINTS_M` and found the earlier "depth lines fail" claim had
+  `main` (parallel to goal line) and `top`/`bottom` (perpendicular to
+  goal line) backwards. With both sides of real data in, the pattern is
+  asymmetric in a way no single geometric rule explains: left six-yard
+  box has `main`+`bottom` broken and `top` perfect; right six-yard box
+  has the *opposite* -- `top` broken, `main`+`bottom` fine. Looks more
+  like uneven per-keypoint-slot calibration than one clean geometric
+  blind spot. Some counts still small (n=1-3) -- not yet fully solid,
+  next step is more samples per weak keypoint specifically.

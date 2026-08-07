@@ -325,11 +325,22 @@ imgsz=640, dynamic=False)`.
   rect. left main` (~455–461px), `Small rect. left bottom` (~219–236px),
   `Big rect. left main|1` (895.6px — its sibling endpoint `|0` is
   perfect), `Goal left post` (~187–202px). Overall median 4.1px, mean
-  189.8px (pulled entirely by that cluster). **Sharper diagnosis than
-  "six-yard box confusion"**: the broken keypoints are specifically the
-  *depth* lines (perpendicular to the goal line) and goalposts — lines
-  running along the goal line are fine. Root cause not yet investigated
-  further.
+  189.8px (pulled entirely by that cluster).
+  **Extended with a second, more diverse batch** (right side, center
+  circle/halfway line, one more left-side frame — the first batch had
+  been entirely left-side) after scanning the full clip for candidates
+  and **visually verifying every one**, which caught 2 real false
+  positives (a lineup graphic, a close-up reaction shot) the model had
+  confidently misread as pitch. Now 12 frames, 138 real points: median
+  7.5px, mean 156.9px, max still 985.1px. **Diagnosis corrected**: the
+  earlier "depth lines fail" claim had the geometry backwards (`main`
+  runs parallel to the goal line, `top`/`bottom` perpendicular — the
+  opposite of what was first stated). With both sides in, the real
+  pattern is asymmetric in a way no single geometric rule explains —
+  left six-yard box has `main`+`bottom` broken and `top` perfect; right
+  six-yard box has the *opposite*. Looks more like uneven per-keypoint
+  calibration than one clean blind spot. Root cause not yet investigated
+  further; several counts are still small (n=1–3).
 - **Ball height (Z) — attempted, math validated, real-footage accuracy not
   trustworthy yet.** `agon.geometry.camera_pose.pixel_to_ray` +
   `agon.analytics.ball_height.estimate_ball_position_3d` (classical
