@@ -350,8 +350,26 @@ imgsz=640, dynamic=False)`.
   have the same split as the boxes — one endpoint fine, the other
   catastrophic. Roughly 10 of the 38 canonical keypoint slots are
   consistently broken while the rest are excellent — three rounds agree.
-  Priority has shifted from gathering more ground truth to root-causing
-  *why* these specific slots fail.
+
+  **Root cause found and fixed.** Compared the model's raw predictions
+  against *every* ground-truth point in a frame, not just the intended
+  target — the "catastrophic" errors were almost all landing within a
+  few px of a *different real point*: the same line's sibling endpoint,
+  or the mirrored goalpost. Not imprecision, mislabeling. Traced to
+  `convert_soccernet_calibration_to_pose.py` assuming SoccerNet's raw
+  per-line point order is globally consistent; it isn't — ~43–44% of
+  frames have it reversed, and it's sequence-level, not random (checked
+  across 57 real train sequences + 400 legacy Calibration images).
+  Goalposts turned out to be a simpler, different bug: a globally
+  consistent (191/191) naming-convention mismatch, not per-frame noise.
+  Fixed both — per-frame coincident-corner reordering for the box lines
+  and pitch corners, a global name swap for goalposts — validated against
+  real data (consistency 57%→92.4%, and 140/140 for goalposts) before
+  regenerating all 82,945 training labels and relaunching training on
+  both GPUs. `Middle line` deliberately left unfixed (same symptom, no
+  reliable signal to correct it by). Retrain in progress — accuracy
+  re-validation against the same human ground truth is the next step
+  once it finishes.
 - **Ball height (Z) — attempted, math validated, real-footage accuracy not
   trustworthy yet.** `agon.geometry.camera_pose.pixel_to_ray` +
   `agon.analytics.ball_height.estimate_ball_position_3d` (classical

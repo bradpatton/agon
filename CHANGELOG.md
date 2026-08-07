@@ -1022,3 +1022,50 @@ validating end-to-end against real footage:
   while the rest are excellent -- a stable, three-round-confirmed
   result. Priority has shifted from gathering more ground truth to
   root-causing *why* these specific slots are broken.
+
+### Fixed
+- **Root cause of the catastrophic per-keypoint errors: a real
+  point-order bug in the training-data conversion script, not a model
+  limitation.** Compared the trained model's raw predictions against
+  every ground-truth point in a frame (not just the intended target) and
+  found the "catastrophic" errors were almost all landing within a few
+  px of a *different real point* -- the same line's sibling endpoint
+  (e.g. `Big rect. left main|1` -> lands on `main|0`, all 8 occurrences),
+  or the mirrored goalpost (`Goal left post left` <-> `right`, both
+  directions, every occurrence). Not imprecision -- mislabeling.
+  Traced to `convert_soccernet_calibration_to_pose.py`'s
+  `_visible_keypoints_px` assuming SoccerNet's raw per-line point order
+  is globally consistent (`raw pts[0]` = endpoint 0, `raw pts[-1]` =
+  endpoint 1). It isn't: checked across 57 real SN-GSR-2025 train
+  sequences and 400 legacy Calibration images, ~43-44% of frames have it
+  reversed, and critically it's **sequence-level, not random per-frame**
+  (e.g. `SNGS-060`: 30/30 "expected"; `SNGS-061`: 0/61, entirely
+  reversed). Roughly 4 in 10 training examples had specific keypoint
+  slots' endpoint labels silently swapped.
+
+  Goalposts showed the identical mirrored-post symptom but a
+  *different* signature (191/191 checked frames agreed, zero
+  sequence-variation) -- not a per-frame data problem but a global,
+  consistent semantic mismatch between SoccerNet's "left"/"right"
+  goalpost convention and this project's (camera-facing) one.
+
+  Two fixes shaped to match the two different mechanisms found:
+  `_reorder_if_swapped`/`_NEIGHBOR_CHECKS` (12 coincident-corner
+  relationships, per-frame reordering, only acts on clear signal) for
+  the box lines and pitch corners; `GOAL_POST_NAME_CORRECTION` (a
+  uniform raw-name swap, no per-frame logic) for goalposts, deliberately
+  applied only in the conversion script, not in the shared
+  `pitch_keypoints` definitions the human ground truth and every
+  inference consumer already use correctly. `Middle line` shows the same
+  swap symptom but has no coincident neighbor to check against and
+  doesn't reliably track its own sequence's box-line orientation --
+  deliberately left unfixed rather than guessed at.
+
+  Validated against real data before regenerating anything: re-checking
+  the *corrected* function's own output, coincident-corner consistency
+  went from ~57% to 92.4% (SN-GSR-2025) and ~55% to 82.5% (legacy
+  Calibration); goalpost fix confirmed 140/140. Regenerated all 82,945
+  training labels (identical frame counts to before -- only point
+  assignment changed) and cleared the stale Ultralytics label cache.
+  Full retrain launched on both GPUs (confirmed both RTX 3090s active
+  via DDP).
