@@ -1069,3 +1069,33 @@ validating end-to-end against real footage:
   assignment changed) and cleared the stale Ultralytics label cache.
   Full retrain launched on both GPUs (confirmed both RTX 3090s active
   via DDP).
+- **Retrain completed after three real failures, each independently
+  diagnosed, and the fix is now confirmed to work.** Attempt 1: severe
+  throughput loss from host RAM/swap exhaustion, root-caused to
+  `_auto_workers`'s heuristic not accounting for Ultralytics DDP
+  spawning that worker count *per GPU process* under multi-GPU training.
+  Attempt 2 (`--batch 64 --workers 2`, fixing both the GPU-underutilization
+  and worker-count issues at once): reached epoch 30/30 with a strong
+  result (Box mAP50 0.942, Pose mAP50 0.871) but crashed twice -- once
+  from a real GPU hardware dropout (`nvidia-smi` couldn't see GPU 0 at
+  all, resolved by physically checking the machine), then again from a
+  genuine kernel OOM-kill (`journalctl -k` confirmed the real oom-killer
+  event) right at the very end, corrupting the final checkpoint's
+  optimizer state. Verified the checkpoint was still usable before
+  trusting it -- loaded cleanly with the correct parameter count and no
+  NaN weights, and `epoch: -1` / the smaller file size turned out to be
+  Ultralytics' own normal marker for a "training complete" checkpoint,
+  not corruption. Backed it up immediately, exported ONNX manually
+  (the crash had interrupted that step), and validated.
+
+  **Real result**: mean error 71.2px (down from 151.7-156.9px, more than
+  halved), p90 215.9px (down from 473.8-490.9px, more than halved),
+  against the same real human ground truth that found the original bug.
+  Most previously-broken slots are now near-perfect: `Big rect. left
+  main|1` 905px -> 8.3px, `Small rect. left main` ~450px -> ~5px, `Goal
+  left post` ~200px -> ~8px. Three honest gaps remain, not glossed over:
+  `Middle line` (expected, deliberately unfixed), `Goal right post`
+  (~220px -- the earlier empirical verification only tested the *left*
+  goal's naming convention, never confirmed the right goal independently),
+  and `Small rect. left bottom` (~213px -- unexpected, this pair *was*
+  supposed to be covered by the per-frame fix and wasn't).

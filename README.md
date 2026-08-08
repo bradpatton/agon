@@ -367,9 +367,27 @@ imgsz=640, dynamic=False)`.
   real data (consistency 57%→92.4%, and 140/140 for goalposts) before
   regenerating all 82,945 training labels and relaunching training on
   both GPUs. `Middle line` deliberately left unfixed (same symptom, no
-  reliable signal to correct it by). Retrain in progress — accuracy
-  re-validation against the same human ground truth is the next step
-  once it finishes.
+  reliable signal to correct it by).
+
+  **Retrain complete and validated — real, decisive improvement.**
+  Training reached epoch 30/30 (Box mAP50 0.942, Pose mAP50 0.871, up
+  from 0.842) despite three real failures along the way (a DDP
+  worker-count/RAM mismatch throttling throughput, a genuine GPU
+  hardware dropout needing a physical check, and a kernel OOM-kill right
+  at the end that corrupted the final checkpoint's optimizer state but
+  not the model weights — recovered by exporting ONNX directly from the
+  backed-up checkpoint). **Real accuracy result** against the same human
+  ground truth that found the bug: mean error **71.2px, down from
+  151.7–156.9px** (more than halved), p90 **215.9px, down from
+  473.8–490.9px** (more than halved). Most previously-broken keypoints
+  are now near-perfect (`Big rect. left main|1`: 905px→8.3px; `Small
+  rect. left main`: ~450px→~5px; `Goal left post`: ~200px→~8px). Three
+  honest gaps remain: `Middle line` (expected), `Goal right post`
+  (~220px — the earlier verification only tested the left goal, not the
+  right), `Small rect. left bottom` (~213px — unexpected, this pair
+  should have been covered by the fix and wasn't). **Not yet wired into
+  the pipeline** — `models/pitch_calibration/best.onnx` still points at
+  the old, pre-fix model.
 - **Ball height (Z) — attempted, math validated, real-footage accuracy not
   trustworthy yet.** `agon.geometry.camera_pose.pixel_to_ray` +
   `agon.analytics.ball_height.estimate_ball_position_3d` (classical
