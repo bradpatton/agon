@@ -135,31 +135,41 @@ for _line_a, _idx_a, _line_b, _idx_b in _COINCIDENT_RAW_CHECKS:
 GOAL_POST_NAME_CORRECTION: dict[str, str] = {
     "Goal left post left": "Goal left post right",
     "Goal left post right": "Goal left post left",
-    "Goal right post left": "Goal right post right",
-    "Goal right post right": "Goal right post left",
 }
-"""SoccerNet's raw ``Goal * post left``/``Goal * post right`` line names are
-globally swapped relative to this project's (camera-facing) convention --
-confirmed 191/191 checked frames agree, not sequence-varying like the
-other point-order issue, i.e. a genuine semantic mismatch rather than a
-per-frame data problem. Maps the raw line name to the canonical name it
-actually corresponds to. Deliberately not fixed in
-``agon.geometry.pitch_keypoints`` itself -- see module docstring."""
+"""SoccerNet's raw ``Goal left post left``/``Goal left post right`` line
+names are globally swapped relative to this project's (camera-facing)
+convention -- confirmed 191/191 checked frames agree, not sequence-varying
+like the other point-order issue, i.e. a genuine semantic mismatch rather
+than a per-frame data problem. Maps the raw line name to the canonical
+name it actually corresponds to. Deliberately not fixed in
+``agon.geometry.pitch_keypoints`` itself -- see module docstring.
+
+**Right goal deliberately excluded from this correction** (real mistake,
+found and fixed post-training): the original fix applied this same swap
+to ``Goal right post left/right`` too, assuming symmetry with the left
+goal without checking. An independent verification (same anchor-based
+technique as the left-goal check, using the right box's already-corrected
+orientation as ground truth) found the *opposite* result: 219 of 234
+checked frames (93.6%) show the right goal's raw naming was already
+correct. Applying the swap there had been actively wrong, not merely
+unnecessary -- removed."""
 
 
-def _reorder_if_swapped(
-    name: str, raw_pts: list[dict], lines: dict, width: int, height: int, tol_px: float = 8.0
-) -> list[dict]:
-    """Returns ``raw_pts`` in canonical (endpoint 0 first) order, reversing
-    it if a coincident-corner neighbor line present in this same frame
-    clearly matches the reversed orientation instead. Conservative by
-    design: only acts when at least one neighbor check clearly supports
-    reversing and none support keeping it as-is; otherwise returns
-    ``raw_pts`` unchanged (including when no checkable neighbor is
-    present in this frame at all)."""
+def _line_check_verdict(
+    name: str,
+    raw_pts: list[dict],
+    neighbor_pts_by_name: dict[str, list[dict]],
+    width: int,
+    height: int,
+    tol_px: float = 8.0,
+) -> bool | None:
+    """True if reversal is confirmed, False if as-is is confirmed, None if
+    ambiguous/no signal. ``neighbor_pts_by_name`` supplies each neighbor's
+    points -- pass raw data for a first pass, or pass-1-corrected data for
+    a second pass (see ``_resolve_line_orders``)."""
     checks = _NEIGHBOR_CHECKS.get(name)
     if not checks or len(raw_pts) < 2:
-        return raw_pts
+        return None
 
     def px(pt: dict) -> tuple[float, float]:
         return pt["x"] * width, pt["y"] * height
@@ -171,7 +181,7 @@ def _reorder_if_swapped(
     as_is_hits = 0
     reversed_hits = 0
     for own_idx, neighbor_name, neighbor_idx in checks:
-        neighbor_pts = lines.get(neighbor_name)
+        neighbor_pts = neighbor_pts_by_name.get(neighbor_name)
         if neighbor_pts is None or len(neighbor_pts) < 2:
             continue
         neighbor_pt = neighbor_pts[neighbor_idx]
@@ -182,8 +192,48 @@ def _reorder_if_swapped(
             reversed_hits += 1
 
     if reversed_hits > 0 and as_is_hits == 0:
-        return list(reversed(raw_pts))
-    return raw_pts
+        return True
+    if as_is_hits > 0 and reversed_hits == 0:
+        return False
+    return None
+
+
+def _resolve_line_orders(lines: dict, width: int, height: int) -> dict[str, list[dict]]:
+    """Two-pass version of the per-frame point-order correction (project
+    plan Phase 18/19). A single pass -- comparing a line only against its
+    neighbors' *raw* points -- silently fails whenever a line's only
+    neighbor is *also* reversed in the same frame, since the comparison
+    is then against the neighbor's wrong raw point too and matches
+    neither orientation. Confirmed via real data this was leaving
+    ``Small rect. left/right bottom`` uncorrected in the majority of
+    frames where they actually needed it (their only neighbor is the
+    box's ``main`` line, and swaps are sequence-correlated, so whenever
+    bottom needs fixing, main almost always does too).
+
+    Pass 1: exactly the single-pass check, using every checkable line's
+    raw points. Pass 2: any line still ambiguous is re-checked against
+    its neighbors' *pass-1-corrected* points instead of their raw ones,
+    catching exactly the case above."""
+    candidates = {name: pts for name, pts in lines.items() if name in _NEIGHBOR_CHECKS}
+
+    verdicts: dict[str, bool | None] = {
+        name: _line_check_verdict(name, pts, candidates, width, height)
+        for name, pts in candidates.items()
+    }
+
+    corrected_neighbor_pts = {
+        name: (list(reversed(pts)) if verdicts.get(name) else pts)
+        for name, pts in candidates.items()
+    }
+    for name, pts in candidates.items():
+        if verdicts[name] is not None:
+            continue
+        verdicts[name] = _line_check_verdict(name, pts, corrected_neighbor_pts, width, height)
+
+    return {
+        name: (list(reversed(pts)) if verdicts.get(name) else pts)
+        for name, pts in lines.items()
+    }
 
 
 def _visible_keypoints_px(
@@ -194,6 +244,7 @@ def _visible_keypoints_px(
     name corrections described in this module's docstring before
     extracting endpoint positions."""
     visible = {}
+    resolved_lines = _resolve_line_orders(lines, width, height)
     for raw_name, raw_pts in lines.items():
         if raw_name in EXCLUDED_LINES:
             continue
@@ -201,11 +252,11 @@ def _visible_keypoints_px(
         if name not in LINE_ENDPOINTS_M:
             continue
         real_endpoints = LINE_ENDPOINTS_M[name]
-        pts = raw_pts
         if len(real_endpoints) == 1:
+            pts = raw_pts
             raw_indices = (GOAL_POST_GROUND_POINT_INDEX,)
         else:
-            pts = _reorder_if_swapped(name, raw_pts, lines, width, height)
+            pts = resolved_lines.get(raw_name, raw_pts)
             raw_indices = (0, -1)
         for real_idx, raw_idx in enumerate(raw_indices):
             px_val, py_val = pts[raw_idx]["x"] * width, pts[raw_idx]["y"] * height
